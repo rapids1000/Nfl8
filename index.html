@@ -155,6 +155,15 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
 .subhead { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 4px 0 0; }
 .field input { font: 600 14px/1 var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; min-height: 44px; width: 100%; }
 .field input:focus-visible { outline: 2px solid var(--flag); outline-offset: 2px; }
+.pick-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pick-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.pick-list li:first-child { border-top: 0; padding-top: 2px; }
+.pick-list .who { font: 800 24px/1 var(--font-display); letter-spacing: 0.02em; text-transform: uppercase; }
+.pick-list .vs { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.pick-list .pct { text-align: right; font: 800 26px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.pick-list .pct small { display: block; font: 600 11px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.pick-list .more { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.t-strong { color: var(--good); } .t-solid { color: var(--flag); } .t-lean { color: var(--fg); } .t-flip { color: var(--muted); }
 .src td:first-child { white-space: normal; min-width: 150px; }
 .src small { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 150px; min-width: 0; }
@@ -174,6 +183,19 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
   <div class="hash" aria-hidden="true"></div>
 
   <div class="banner" id="banner" hidden></div>
+
+  <section aria-labelledby="h-picks">
+    <h2 id="h-picks">Picks <span id="picksNote">Most likely winners first</span></h2>
+    <div class="stats">
+      <div class="stat"><b id="pkWin">—</b><span id="pkWinLbl">Winners hit</span></div>
+      <div class="stat"><b id="pkTop">—</b><span>70%+ picks hit</span></div>
+      <div class="stat"><b id="pkAts">—</b><span>Spread side hit</span></div>
+    </div>
+    <ul class="pick-list" id="pickList"><li><div class="vs">Run the pipeline to get picks for every upcoming game.</div></li></ul>
+    <p class="subhead">Recent results</p>
+    <ul class="picks" id="pickRecent"><li><div class="gm">Graded picks show up here after games finish.</div></li></ul>
+    <p class="note" id="pickTiers"></p>
+  </section>
 
   <section aria-labelledby="h-run">
     <h2 id="h-run">Run <span id="lastRun">No runs yet</span></h2>
@@ -215,7 +237,7 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
   </section>
 
   <section aria-labelledby="h-bets">
-    <h2 id="h-bets">Bets <span id="betNote">Paper tracking</span></h2>
+    <h2 id="h-bets">Betting (optional) <span id="betNote">Paper tracking</span></h2>
     <div class="banner" id="btWarn" hidden></div>
     <div class="stats">
       <div class="stat"><b id="bBank">—</b><span>Bankroll</span></div>
@@ -365,9 +387,9 @@ import sqlite3
 import time
 from datetime import date, datetime, timedelta, timezone
 
-VERSION = "8.0.6"
+VERSION = "8.0.7"
 DB_PATH = "/engine.db"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 FETCH = None
 
 GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
@@ -491,6 +513,11 @@ CREATE TABLE IF NOT EXISTS bets (
   book TEXT, p_push REAL, model_only_prob REAL, status TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_bets_game ON bets(game_id, market);
+CREATE TABLE IF NOT EXISTS picks (
+  game_id TEXT, market TEXT, side TEXT, line REAL, prob REAL, model_prob REAL, market_prob REAL,
+  updated_at TEXT, locked INTEGER, result TEXT,
+  PRIMARY KEY (game_id, market)
+);
 
 CREATE TABLE IF NOT EXISTS model_metrics (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, model TEXT, target TEXT, season INTEGER,
@@ -540,6 +567,7 @@ STAGES = [
     ("features", "Feature engineering", 3, "EPA model, EWMA, opponent-adjusted (DVOA-style) ratings, Elo, SRS, Pythag, down splits, trench rates, line yards"),
     ("train", "Model training", 4, "Ridge + gradient boosting + logistic ensemble, strict walk-forward tests, blending and calibration"),
     ("predict", "Predictions", 4, "Margin, total, win probability, confidence and top drivers for the next 14 days"),
+    ("picks", "Picks", 6, "Most likely winner, spread side and total side for every game, ranked by probability and graded"),
     ("bet", "Betting engine", 5, "Model + market blend, no-vig, edge, EV, fractional Kelly sizing, settlement, CLV, backtest"),
 ]
 STAGE_META = {k: (name, part) for k, name, part, _ in STAGES}
@@ -2601,6 +2629,156 @@ def bets_summary(con):
             "backtest": json.loads(bt) if bt else None, "weights": json.loads(bw) if bw else None}
 
 
+PICK_TIERS = [(0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 1.01)]
+
+
+def pick_probs(g, w, sig_m, sig_t):
+    out = {}
+    ih, ia = implied(g.get("ml_home")), implied(g.get("ml_away"))
+    nh = novig(ih, ia)[0] if ih is not None and ia is not None else None
+    if g.get("win_prob") is not None:
+        p = g["win_prob"] if nh is None else w["ml"] * g["win_prob"] + (1 - w["ml"]) * nh
+        home = p >= 0.5
+        out["winner"] = {"side": "home" if home else "away", "line": None, "prob": p if home else 1 - p,
+                         "model_prob": g["win_prob"] if home else 1 - g["win_prob"],
+                         "market_prob": (nh if home else 1 - nh) if nh is not None else None}
+    if g.get("pred_margin") is not None and g.get("spread") is not None:
+        L = g["spread"]
+        mu = w["spread"] * g["pred_margin"] + (1 - w["spread"]) * (-L)
+        hw, _, hl = threshold_probs(mu, sig_m, -L)
+        mw, _, ml_ = threshold_probs(g["pred_margin"], sig_m, -L)
+        ph, mh = hw / (hw + hl), mw / (mw + ml_)
+        home = ph >= 0.5
+        out["spread"] = {"side": "home" if home else "away", "line": L if home else -L, "prob": ph if home else 1 - ph,
+                         "model_prob": mh if home else 1 - mh, "market_prob": 0.5}
+    if g.get("pred_total") is not None and g.get("total") is not None:
+        T = g["total"]
+        mu = w["total"] * g["pred_total"] + (1 - w["total"]) * T
+        ow, _, ol = threshold_probs(mu, sig_t, T)
+        mo, _, mu_ = threshold_probs(g["pred_total"], sig_t, T)
+        po, mp = ow / (ow + ol), mo / (mo + mu_)
+        over = po >= 0.5
+        out["total"] = {"side": "over" if over else "under", "line": T, "prob": po if over else 1 - po,
+                        "model_prob": mp if over else 1 - mp, "market_prob": 0.5}
+    return out
+
+
+def grade_pick(market, side, line, margin, total):
+    if market == "winner":
+        v = margin if side == "home" else -margin
+        return "hit" if v > 0 else "miss" if v < 0 else "push"
+    r = grade("spread" if market == "spread" else "total", side, line, margin, total)
+    return {"win": "hit", "loss": "miss"}.get(r, "push")
+
+
+def tier_stats(rows):
+    out = {}
+    for m in ("winner", "spread", "total"):
+        rs = [r for r in rows if r["market"] == m and r["result"] in ("hit", "miss")]
+        hits = sum(r["result"] == "hit" for r in rs)
+        tiers = []
+        for lo, hi in PICK_TIERS:
+            t = [r for r in rs if lo <= r["prob"] < hi]
+            if t:
+                tiers.append({"lo": lo, "hi": min(hi, 1.0), "n": len(t), "hits": sum(r["result"] == "hit" for r in t),
+                              "rate": sum(r["result"] == "hit" for r in t) / len(t)})
+        out[m] = {"n": len(rs), "hits": hits, "rate": hits / len(rs) if rs else None, "tiers": tiers}
+    return out
+
+
+def picks_backtest(np, con, sig_m, sig_t):
+    rows = [dict(r) for r in con.execute(
+        "SELECT p.pred_margin, p.pred_total, p.win_prob, g.season, g.kickoff_utc, g.margin, g.total_points, "
+        "o.spread_close AS spread, o.total_close AS total, o.ml_home_close AS ml_home, o.ml_away_close AS ml_away "
+        "FROM predictions p JOIN games g ON g.game_id = p.game_id LEFT JOIN odds o ON o.game_id = p.game_id AND o.book = 'consensus' "
+        "WHERE p.model = 'walkforward' AND g.margin IS NOT NULL ORDER BY g.kickoff_utc")]
+    if not rows:
+        return None
+    weights, graded = {}, []
+    for r in rows:
+        if r["season"] not in weights:
+            first = min(x["kickoff_utc"] for x in rows if x["season"] == r["season"])
+            weights[r["season"]] = blend_weights(np, con, before=first)
+        for m, p in pick_probs(r, weights[r["season"]], sig_m, sig_t).items():
+            graded.append({"market": m, "prob": p["prob"],
+                           "result": grade_pick(m, p["side"], p["line"], r["margin"], r["total_points"])})
+    out = tier_stats(graded)
+    out["seasons"] = sorted(weights)
+    return out
+
+
+@stage("picks")
+async def picks(con, run_id):
+    await need("numpy", "scikit-learn")
+    import numpy as np
+    bundle = load_bundle(con)
+    if bundle is None:
+        raise RuntimeError("No trained model yet. Run Model training first.")
+    sig_m, sig_t = bundle["sigma_margin"], bundle.get("sigma_total", 13.8)
+    w = blend_weights(np, con)
+    graded = 0
+    for p in con.execute("SELECT k.*, g.margin, g.total_points FROM picks k JOIN games g ON g.game_id = k.game_id "
+                         "WHERE k.result IS NULL AND g.margin IS NOT NULL").fetchall():
+        con.execute("UPDATE picks SET result = ?, locked = 1 WHERE game_id = ? AND market = ?",
+                    (grade_pick(p["market"], p["side"], p["line"], p["margin"], p["total_points"]), p["game_id"], p["market"]))
+        graded += 1
+    con.execute("UPDATE picks SET locked = 1 WHERE locked = 0 AND game_id IN (SELECT game_id FROM games WHERE kickoff_utc <= ?)",
+                (now(),))
+    games = con.execute(
+        "SELECT g.game_id, g.home_team, g.away_team, p.pred_margin, p.pred_total, p.win_prob FROM games g "
+        "JOIN (SELECT game_id, MAX(id) id FROM predictions WHERE model = 'ensemble' GROUP BY game_id) lp ON lp.game_id = g.game_id "
+        "JOIN predictions p ON p.id = lp.id WHERE g.home_score IS NULL AND g.kickoff_utc > ?", (now(),)).fetchall()
+    ts, n = now(), 0
+    for g in games:
+        gd = dict(g, **(latest_market(con, g["game_id"]) or {}))
+        for m, p in pick_probs(gd, w, sig_m, sig_t).items():
+            con.execute(
+                "INSERT INTO picks(game_id, market, side, line, prob, model_prob, market_prob, updated_at, locked) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(game_id, market) DO UPDATE SET side = excluded.side, "
+                "line = excluded.line, prob = excluded.prob, model_prob = excluded.model_prob, market_prob = excluded.market_prob, "
+                "updated_at = excluded.updated_at WHERE picks.locked = 0",
+                (g["game_id"], m, p["side"], p["line"], round(p["prob"], 4), round(p["model_prob"], 4),
+                 None if p["market_prob"] is None else round(p["market_prob"], 4), ts))
+            n += 1
+    pk_stamp = f"{get_meta(con, 'train_stamp')}|picks1"
+    if get_meta(con, "picks_backtest_stamp") != pk_stamp:
+        bt = picks_backtest(np, con, sig_m, sig_t)
+        if bt:
+            set_meta(con, "picks_backtest", json.dumps(bt))
+            set_meta(con, "picks_backtest_stamp", pk_stamp)
+            log(f"  pick backtest {bt['seasons']}: winners {bt['winner']['rate'] or 0:.1%} of {bt['winner']['n']} · "
+                f"spread {bt['spread']['rate'] or 0:.1%} · total {bt['total']['rate'] or 0:.1%}")
+    top = con.execute("SELECT k.*, g.home_team, g.away_team FROM picks k JOIN games g ON g.game_id = k.game_id "
+                      "WHERE k.market = 'winner' AND k.locked = 0 ORDER BY k.prob DESC LIMIT 5").fetchall()
+    for t in top:
+        team = t["home_team"] if t["side"] == "home" else t["away_team"]
+        log(f"    {team} to win {t['away_team']} @ {t['home_team']} · {t['prob']:.0%}")
+    log(f"  {len(games)} games picked · {graded} picks graded")
+    return f"{len(games)} games picked · {graded} graded"
+
+
+def picks_summary(con):
+    rows = [dict(r) for r in con.execute(
+        "SELECT k.*, g.home_team, g.away_team, g.kickoff_utc, g.week, g.season, g.home_score, g.away_score "
+        "FROM picks k JOIN games g ON g.game_id = k.game_id ORDER BY g.kickoff_utc")]
+    games = {}
+    for r in rows:
+        if r["result"] is None:
+            d = games.setdefault(r["game_id"], {"game_id": r["game_id"], "home": r["home_team"], "away": r["away_team"],
+                                                "kickoff_utc": r["kickoff_utc"], "week": r["week"], "locked": r["locked"]})
+            d[r["market"]] = {k: r[k] for k in ("side", "line", "prob", "model_prob", "market_prob")}
+    upcoming = sorted(games.values(), key=lambda d: -(d.get("winner") or {}).get("prob", 0))
+    done = [r for r in rows if r["result"] is not None]
+    season = max((r["season"] for r in done), default=None)
+    recent = sorted([r for r in done if r["market"] == "winner"], key=lambda r: r["kickoff_utc"], reverse=True)[:12]
+    bt = get_meta(con, "picks_backtest")
+    return {"upcoming": upcoming, "record": tier_stats(done),
+            "season_record": tier_stats([r for r in done if r["season"] == season]) if season else None,
+            "season": season, "recent": [{k: r[k] for k in ("home_team", "away_team", "side", "prob", "result", "home_score",
+                                                           "away_score", "kickoff_utc")} for r in recent],
+            "backtest": json.loads(bt) if bt else None}
+
+
 @stage("check")
 async def check(con, run_id):
     ok = con.execute("PRAGMA integrity_check").fetchone()[0]
@@ -2750,7 +2928,7 @@ def summary_json():
     runs = [dict(r) for r in con.execute("SELECT * FROM runs ORDER BY run_id DESC LIMIT 8")]
     out = {"version": VERSION, "tables": tables, "stages": stages, "runs": runs, "settings": settings(con),
            "sources": sources, "upcoming": upcoming_games(con), "ratings": current_ratings(con),
-           "ep_r2": num(get_meta(con, "ep_r2")), "model": model_summary(con), "bets": bets_summary(con)}
+           "ep_r2": num(get_meta(con, "ep_r2")), "model": model_summary(con), "bets": bets_summary(con), "picks": picks_summary(con)}
     con.close()
     return json.dumps(out)
 </script>
@@ -2996,6 +3174,7 @@ function render(sum) {
   renderRatings(sum.ratings || [], sum.ep_r2);
   renderModel(sum.model, sum.settings);
   renderBets(sum.bets, sum.settings);
+  renderPicks(sum.picks);
   renderSources(sum.sources || [], sum.settings);
 }
 
@@ -3030,6 +3209,59 @@ function renderGames(games) {
       <div class="ln">${esc(spreadText(g))}<small>${esc(total)} · ${esc(move)}</small></div>
       <div class="meta">${chips.join('')}</div></li>`;
   }).join('');
+}
+
+function tier(p) {
+  return p >= 0.8 ? ['Strong', 't-strong'] : p >= 0.7 ? ['Solid', 't-solid'] : p >= 0.6 ? ['Lean', 't-lean'] : ['Coin flip', 't-flip'];
+}
+
+function renderPicks(P) {
+  if (!P) return;
+  const pc = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const rec = P.season_record && P.season_record.winner.n ? P.season_record : null;
+  const bt = P.backtest;
+  if (rec) {
+    const w = rec.winner;
+    $('#pkWin').textContent = `${w.hits}-${w.n - w.hits}`;
+    $('#pkWinLbl').textContent = `Winners ${P.season} (${pc(w.rate)})`;
+  } else if (bt) {
+    $('#pkWin').textContent = pc(bt.winner.rate);
+    $('#pkWinLbl').textContent = 'Winners hit (tested)';
+  }
+  if (bt) {
+    const top = bt.winner.tiers.filter(t => t.lo >= 0.7);
+    const n = top.reduce((a, t) => a + t.n, 0), hits = top.reduce((a, t) => a + t.hits, 0);
+    $('#pkTop').textContent = n ? pc(hits / n) : '—';
+    $('#pkAts').textContent = pc(bt.spread.rate);
+    $('#pickTiers').textContent = 'Tested on ' + bt.winner.n + ' past games: ' + bt.winner.tiers.map(t => `${Math.round(t.lo * 100)}%${t.hi >= 1 ? '+' : '–' + Math.round(t.hi * 100) + '%'} picks hit ${pc(t.rate)} (${t.n})`).join(' · ') + `. Spread sides hit ${pc(bt.spread.rate)} and total sides ${pc(bt.total.rate)}, so treat those as close calls.`;
+  }
+  $('#pickList').innerHTML = P.upcoming.length ? P.upcoming.map(g => {
+    const w = g.winner;
+    if (!w) return '';
+    const team = w.side === 'home' ? g.home : g.away, opp = w.side === 'home' ? g.away : g.home;
+    const [label, cls] = tier(w.prob);
+    const chips = [];
+    if (g.spread) {
+      const t = g.spread.side === 'home' ? g.home : g.away;
+      chips.push(g.spread.prob < 0.52 ? `<span class="chip">Spread: toss-up (${esc(t)} ${signed(g.spread.line)})</span>`
+        : `<span class="chip hot">Spread: ${esc(t)} ${signed(g.spread.line)} · ${(g.spread.prob * 100).toFixed(0)}%</span>`);
+    }
+    if (g.total) {
+      const t = g.total.side === 'over' ? 'Over' : 'Under';
+      chips.push(g.total.prob < 0.52 ? `<span class="chip">Total ${g.total.line}: toss-up</span>`
+        : `<span class="chip hot">${t} ${g.total.line} · ${(g.total.prob * 100).toFixed(0)}%</span>`);
+    }
+    chips.push(`<span class="chip">Model alone ${(w.model_prob * 100).toFixed(0)}%</span>`);
+    if (w.market_prob != null) chips.push(`<span class="chip">Odds imply ${(w.market_prob * 100).toFixed(0)}%</span>`);
+    return `<li><div><div class="who ${cls}">${esc(team)}</div><div class="vs">${w.side === 'home' ? 'vs' : '@'} ${esc(opp)} · ${kick(g.kickoff_utc)}${g.locked ? ' · locked' : ''}</div></div>
+      <div class="pct ${cls}">${(w.prob * 100).toFixed(0)}%<small>${label}</small></div><div class="more">${chips.join('')}</div></li>`;
+  }).join('') : '<li><div class="vs">No upcoming games with predictions yet. Run the pipeline.</div></li>';
+  $('#pickRecent').innerHTML = P.recent.length ? P.recent.map(r => {
+    const team = r.side === 'home' ? r.home_team : r.away_team;
+    return `<li><div><div class="pk">${esc(team)} to win · ${(r.prob * 100).toFixed(0)}%</div>
+      <div class="gm">${esc(r.away_team)} ${r.away_score ?? ''} @ ${esc(r.home_team)} ${r.home_score ?? ''} · ${when(r.kickoff_utc)}</div></div>
+      <div class="st ${r.result === 'hit' ? 'win' : r.result === 'miss' ? 'loss' : ''}">${r.result.toUpperCase()}</div></li>`;
+  }).join('') : '<li><div class="gm">Graded picks show up here after games finish.</div></li>';
 }
 
 function pickText(b) {
