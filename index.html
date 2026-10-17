@@ -251,6 +251,15 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
           <option value="0.08">8%</option>
         </select>
       </label>
+      <label class="field" for="setFloor"><span>Model influence (all markets)</span>
+        <select id="setFloor" data-key="model_floor">
+          <option value="0">Learned only (strictest)</option>
+          <option value="0.1">At least 10%</option>
+          <option value="0.2">At least 20%</option>
+          <option value="0.3">At least 30%</option>
+          <option value="0.4">At least 40%</option>
+        </select>
+      </label>
       <label class="field" for="setMax"><span>Max stake per bet</span>
         <select id="setMax" data-key="max_bet_pct">
           <option value="0.01">1% of bankroll</option>
@@ -260,7 +269,7 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
         </select>
       </label>
     </div>
-    <p class="note">Win chances blend the model with the no-vig market price, using model weights learned from past results. When the model hasn't beaten the market, its weight drops toward zero and the engine stops recommending bets. Open bets lock their line and price when first recommended, so the closing line shows whether you beat it.</p>
+    <p class="note">Win chances blend the model with the no-vig market price, using model weights learned from past results. Model influence sets the minimum say the model gets in every market, so moneyline, spread and total bets can all appear. Learned only is strictest: the model's say falls to zero wherever it hasn't beaten the market. Open bets lock their line and price when first recommended, so the closing line shows whether you beat it.</p>
   </section>
 
   <section aria-labelledby="h-model">
@@ -356,7 +365,7 @@ import sqlite3
 import time
 from datetime import date, datetime, timedelta, timezone
 
-VERSION = "8.0.5"
+VERSION = "8.0.6"
 DB_PATH = "/engine.db"
 SCHEMA_VERSION = 5
 FETCH = None
@@ -522,6 +531,7 @@ DEFAULT_SETTINGS = {
     "market_features": 0,
     "wf_block_weeks": 3,
     "max_exposure": 0.25,
+    "model_floor": 0.2,
 }
 
 STAGES = [
@@ -2371,9 +2381,9 @@ def blend_rows(con, before=None):
     }
 
 
-def blend_weights(np, con, before=None):
+def blend_weights(np, con, before=None, floor=0.0):
     rows = blend_rows(con, before)
-    return {k: fit_blend(np, rows[k], k) for k in ("ml", "spread", "total")}
+    return {k: max(fit_blend(np, rows[k], k), floor) for k in ("ml", "spread", "total")}
 
 
 def bet_metrics(bets, start_bank, unit):
@@ -2438,7 +2448,7 @@ def backtest(np, con, s, sig_m, sig_t):
     for (season, week), games in sorted(weeks.items(), key=lambda kv: kv[1][0]["kickoff_utc"]):
         if season not in weights_by_season:
             first = min(g["kickoff_utc"] for g in rows if g["season"] == season)
-            weights_by_season[season] = blend_weights(np, con, before=first)
+            weights_by_season[season] = blend_weights(np, con, before=first, floor=float(s.get("model_floor", 0)))
         w = weights_by_season[season]
         week_bank = bank
         for g in games:
@@ -2505,7 +2515,7 @@ async def bet(con, run_id):
     if bundle is None:
         raise RuntimeError("No trained model yet. Run Model training first.")
     sig_m, sig_t = bundle["sigma_margin"], bundle.get("sigma_total", 13.8)
-    w = blend_weights(np, con)
+    w = blend_weights(np, con, floor=float(s.get("model_floor", 0)))
     set_meta(con, "bet_weights", json.dumps(w))
     settled = 0
     for b in con.execute("SELECT b.*, g.margin, g.total_points FROM bets b JOIN games g ON g.game_id = b.game_id "
@@ -2557,7 +2567,7 @@ async def bet(con, run_id):
             line = f" {b['line']:+g}" if b["market"] == "spread" else f" {b['line']:g}" if b["market"] == "total" else " ML"
             log(f"    NEW {g['away_team']} @ {g['home_team']}: {team}{line} ({b['price']:+d}) · EV {b['ev']:+.1%} · "
                 f"stake ${stake:,.2f}")
-    bt_stamp = f"{get_meta(con, 'train_stamp')}|{s['kelly_fraction']}|{s['min_edge']}|{s['max_bet_pct']}|{s['bankroll']}"
+    bt_stamp = f"{get_meta(con, 'train_stamp')}|{s['kelly_fraction']}|{s['min_edge']}|{s['max_bet_pct']}|{s['bankroll']}|{s.get('model_floor', 0)}"
     if get_meta(con, "backtest_stamp") != bt_stamp:
         bt = backtest(np, con, s, sig_m, sig_t)
         if bt:
@@ -3034,6 +3044,7 @@ function renderBets(B, st) {
     $('#setKelly').value = String(st.kelly_fraction);
     $('#setEdge').value = String(st.min_edge);
     $('#setMax').value = String(st.max_bet_pct);
+    $('#setFloor').value = String(st.model_floor ?? 0);
   }
   if (!B) return;
   const money = v => v == null ? '—' : (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3218,7 +3229,7 @@ $('#setBank').onchange = e => {
   send({ cmd: 'set', req: { bankroll: v } });
 };
 
-['#setHistory', '#setPerRun', '#setMarket', '#setKelly', '#setEdge', '#setMax'].forEach(id => {
+['#setHistory', '#setPerRun', '#setMarket', '#setKelly', '#setEdge', '#setMax', '#setFloor'].forEach(id => {
   $(id).onchange = e => {
     if (!S.ready || S.busy) { log('Wait for the engine to finish, then change the setting again', 'err'); if (S.summary) render(S.summary); return; }
     setBusy(true);
