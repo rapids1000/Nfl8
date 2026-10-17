@@ -1,0 +1,3243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1512">
+<title>NFL Engine 8</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow sideline-console column; panels stack top to bottom in the order you use them. */
+:root {
+  --bg: #0d1512;
+  --panel: #141f1b;
+  --panel-2: #1a2823;
+  --line: #263a33;
+  --fg: #e5ece8;
+  --muted: #8ea398;
+  --flag: #f2c230;
+  --flag-ink: #1d1700;
+  --good: #52cf8c;
+  --bad: #ff6d5e;
+  --warn: #f0a23a;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  -webkit-tap-highlight-color: transparent;
+}
+.wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+header {
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  padding-bottom: 6px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.brand { display: flex; flex-direction: column; gap: 2px; }
+.brand h1 {
+  margin: 0; font: 800 34px/0.95 var(--font-display); letter-spacing: 0.01em; text-transform: uppercase;
+}
+.brand h1 b { color: var(--flag); font-weight: 800; }
+.brand small { color: var(--muted); font: 500 12px/1.3 var(--font-mono); }
+.hash {
+  height: 10px;
+  background: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 22px);
+  border-bottom: 2px solid var(--line);
+}
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  font: 600 12px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  white-space: nowrap;
+}
+.pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill[data-s="ready"] { color: var(--good); } .pill[data-s="ready"] i { background: var(--good); }
+.pill[data-s="running"], .pill[data-s="booting"] { color: var(--flag); }
+.pill[data-s="running"] i, .pill[data-s="booting"] i { background: var(--flag); animation: blink 1s infinite; }
+.pill[data-s="error"] { color: var(--bad); } .pill[data-s="error"] i { background: var(--bad); }
+@keyframes blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .pill i { animation: none !important; } }
+
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+h2 {
+  margin: 0; font: 700 15px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+h2 span { font: 500 12px/1 var(--font-mono); letter-spacing: 0; text-transform: none; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > * { min-width: 0; }
+button, select, .btnlike {
+  font: 600 14px/1 var(--font-body); color: var(--fg); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 0 14px; min-height: 44px; cursor: pointer;
+}
+select { padding-right: 8px; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:focus-visible, select:focus-visible, input:focus-visible + .switch, .btnlike:focus-within { outline: 2px solid var(--flag); outline-offset: 2px; }
+.primary { background: var(--flag); color: var(--flag-ink); border-color: var(--flag); font: 800 18px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.06em; flex: 1 1 100%; min-height: 54px; }
+.danger { color: var(--bad); }
+.grow { flex: 1 1 140px; }
+
+.auto { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px dashed var(--line); }
+.toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { width: 46px; height: 26px; border-radius: 13px; background: var(--panel-2); border: 1px solid var(--line); position: relative; transition: background .15s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.toggle input:checked + .switch { background: var(--flag); border-color: var(--flag); }
+.toggle input:checked + .switch::after { transform: translateX(20px); background: var(--flag-ink); }
+.countdown { font: 500 13px/1.3 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.countdown b { color: var(--fg); font-weight: 500; }
+.note { color: var(--muted); font-size: 13px; margin: 0; }
+
+.stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.stages li { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.stages li:first-child { border-top: 0; padding-top: 2px; }
+.stages .n { font: 700 20px/1 var(--font-display); color: var(--muted); text-align: center; }
+.stages .t { min-width: 0; }
+.stages .t strong { display: block; font-weight: 600; }
+.stages .t small { display: block; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.tag { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.tag.error { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.tag.pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+
+.log {
+  background: #08100d; border: 1px solid var(--line); border-radius: 8px; height: 280px; overflow: auto;
+  padding: 10px; margin: 0; font: 12.5px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.log .ts { color: #5b7066; }
+.log .err { color: var(--bad); }
+.log .dim { color: var(--muted); }
+.log .sys { color: var(--flag); }
+
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--panel-2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.stat b { font: 700 24px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.stat span { font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 0 8px 8px 0; }
+td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line); white-space: nowrap; }
+td.num, th.num { text-align: right; font-family: var(--font-mono); }
+.empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+.banner { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); color: var(--fg); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
+.games { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.games li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.games li:first-child { border-top: 0; padding-top: 2px; }
+.games .mu { font: 700 19px/1.1 var(--font-display); letter-spacing: 0.02em; }
+.games .mu span { color: var(--muted); font-weight: 600; padding: 0 4px; }
+.games .ko { color: var(--muted); font-size: 12.5px; }
+.games .ln { text-align: right; font: 500 14px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.games .ln small { display: block; color: var(--muted); font-size: 11.5px; }
+.games .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 11.5px/1 var(--font-mono); color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 5px 7px; white-space: nowrap; }
+.chip.hot { color: var(--flag); }
+.chip.bad { color: var(--bad); }
+.picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.picks li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.picks li:first-child { border-top: 0; padding-top: 2px; }
+.picks .pk { font: 700 18px/1.15 var(--font-display); letter-spacing: 0.02em; }
+.picks .gm { color: var(--muted); font-size: 12.5px; }
+.picks .st { text-align: right; font: 500 14px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.picks .st small { display: block; color: var(--muted); font-size: 11.5px; }
+.picks .why { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.win { color: var(--good); } .loss { color: var(--bad); }
+.subhead { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 4px 0 0; }
+.field input { font: 600 14px/1 var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; min-height: 44px; width: 100%; }
+.field input:focus-visible { outline: 2px solid var(--flag); outline-offset: 2px; }
+.src td:first-child { white-space: normal; min-width: 150px; }
+.src small { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 150px; min-width: 0; }
+.field span { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+@media (max-width: 420px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .brand h1 { font-size: 30px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>NFL Engine <b>8</b></h1>
+      <small id="sub">Python engine · on-phone database</small>
+    </div>
+    <div class="pill" id="pill" data-s="booting" role="status" aria-live="polite"><i></i><span id="pillText">Starting</span></div>
+  </header>
+  <div class="hash" aria-hidden="true"></div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <section aria-labelledby="h-run">
+    <h2 id="h-run">Run <span id="lastRun">No runs yet</span></h2>
+    <div class="row">
+      <button class="primary" id="runAll" disabled>Run full pipeline</button>
+    </div>
+    <div class="row">
+      <select id="stagePick" class="grow" aria-label="Stage to run"></select>
+      <button id="runOne" disabled>Run stage</button>
+      <button id="stop" class="danger" disabled>Stop</button>
+    </div>
+    <div class="auto">
+      <label class="toggle" for="autoOn">
+        <input type="checkbox" id="autoOn">
+        <span class="switch" aria-hidden="true"></span>
+        <span>Auto-run every</span>
+      </label>
+      <select id="autoEvery" aria-label="Auto-run interval">
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="60" selected>1 hour</option>
+        <option value="180">3 hours</option>
+        <option value="360">6 hours</option>
+        <option value="720">12 hours</option>
+      </select>
+      <div class="countdown" id="countdown">Auto-run off</div>
+    </div>
+    <label class="toggle" for="awake">
+      <input type="checkbox" id="awake">
+      <span class="switch" aria-hidden="true"></span>
+      <span>Keep screen on while auto-run is on</span>
+    </label>
+    <p class="note">Runs happen in the background while this page is open. If your phone sleeps the page, any missed run starts as soon as you come back.</p>
+  </section>
+
+  <section aria-labelledby="h-games">
+    <h2 id="h-games">Upcoming games <span>Pacific time</span></h2>
+    <ul class="games" id="games"><li><div class="ko">Run the pipeline to load the schedule and live lines.</div></li></ul>
+  </section>
+
+  <section aria-labelledby="h-bets">
+    <h2 id="h-bets">Bets <span id="betNote">Paper tracking</span></h2>
+    <div class="banner" id="btWarn" hidden></div>
+    <div class="stats">
+      <div class="stat"><b id="bBank">—</b><span>Bankroll</span></div>
+      <div class="stat"><b id="bPL">—</b><span>Profit</span></div>
+      <div class="stat"><b id="bRec">—</b><span>Record W-L-P</span></div>
+      <div class="stat"><b id="bYield">—</b><span>Yield</span></div>
+      <div class="stat"><b id="bDD">—</b><span>Max drawdown</span></div>
+      <div class="stat"><b id="bCLV">—</b><span>Beat the close</span></div>
+    </div>
+    <p class="subhead">Open bets</p>
+    <ul class="picks" id="openBets"><li><div class="gm">No open bets. The engine places one only when the blended edge clears your minimum EV.</div></li></ul>
+    <p class="subhead">Settled</p>
+    <ul class="picks" id="doneBets"><li><div class="gm">Nothing settled yet.</div></li></ul>
+    <p class="subhead">Backtest on walk-forward predictions</p>
+    <div class="scroll"><table><thead><tr><th>Market</th><th class="num">Bets</th><th class="num">W-L</th><th class="num">Profit</th><th class="num">Yield</th></tr></thead><tbody id="btTable"><tr><td colspan="5" class="empty">Runs after the first Betting engine stage.</td></tr></tbody></table></div>
+    <p class="note" id="btNote"></p>
+    <div class="row">
+      <label class="field" for="setBank"><span>Starting bankroll ($)</span>
+        <input id="setBank" type="number" inputmode="decimal" min="1" step="1" data-key="bankroll">
+      </label>
+      <label class="field" for="setKelly"><span>Kelly fraction</span>
+        <select id="setKelly" data-key="kelly_fraction">
+          <option value="0.1">1/10 Kelly</option>
+          <option value="0.25">1/4 Kelly</option>
+          <option value="0.5">1/2 Kelly</option>
+        </select>
+      </label>
+      <label class="field" for="setEdge"><span>Minimum EV per bet</span>
+        <select id="setEdge" data-key="min_edge">
+          <option value="0.02">2%</option>
+          <option value="0.03">3%</option>
+          <option value="0.05">5%</option>
+          <option value="0.08">8%</option>
+        </select>
+      </label>
+      <label class="field" for="setMax"><span>Max stake per bet</span>
+        <select id="setMax" data-key="max_bet_pct">
+          <option value="0.01">1% of bankroll</option>
+          <option value="0.02">2% of bankroll</option>
+          <option value="0.03">3% of bankroll</option>
+          <option value="0.05">5% of bankroll</option>
+        </select>
+      </label>
+    </div>
+    <p class="note">Win chances blend the model with the no-vig market price, using model weights learned from past results. When the model hasn't beaten the market, its weight drops toward zero and the engine stops recommending bets. Open bets lock their line and price when first recommended, so the closing line shows whether you beat it.</p>
+  </section>
+
+  <section aria-labelledby="h-model">
+    <h2 id="h-model">Model performance <span id="modelNote">Not trained yet</span></h2>
+    <div class="scroll"><table><thead><tr><th>Walk-forward test</th><th class="num">Model</th><th class="num">Market</th></tr></thead><tbody id="modelPerf"><tr><td colspan="3" class="empty">Run Model training to see how the ensemble scores on games it never saw.</td></tr></tbody></table></div>
+    <div class="row">
+      <label class="field" for="setMarket"><span>Model sees market lines</span>
+        <select id="setMarket" data-key="market_features">
+          <option value="0">No, independent opinion</option>
+          <option value="1">Yes, use lines as inputs</option>
+        </select>
+      </label>
+    </div>
+    <p class="note" id="modelDetail">Each test week is predicted by models trained only on games played before it.</p>
+  </section>
+
+  <section aria-labelledby="h-rate">
+    <h2 id="h-rate">Power ratings <span id="rateNote"></span></h2>
+    <div class="scroll"><table><thead><tr><th class="num">#</th><th>Team</th><th class="num">Power</th><th class="num">Elo</th><th class="num">Off</th><th class="num">Def</th><th class="num">SRS</th><th class="num">Pyth W</th><th class="num">SOS</th><th class="num">TO luck</th></tr></thead><tbody id="ratings"><tr><td colspan="10" class="empty">Ratings appear after the first feature run.</td></tr></tbody></table></div>
+    <p class="note">Power is points better than an average team on a neutral field. Off and Def are opponent-adjusted EPA per play vs. league average, shown DVOA-style: higher Off is better, lower Def is better.</p>
+  </section>
+
+  <section aria-labelledby="h-pipe">
+    <h2 id="h-pipe">Pipeline <span id="builtCount"></span></h2>
+    <ol class="stages" id="stages"><li><span class="n">·</span><div class="t"><strong>Loading engine</strong><small>Stages appear once Python is ready.</small></div><span class="tag">—</span></li></ol>
+  </section>
+
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">Live output
+      <span class="row" style="gap:6px">
+        <button id="copyLog" style="min-height:34px;padding:0 10px;font-size:12px">Copy</button>
+        <button id="clearLog" style="min-height:34px;padding:0 10px;font-size:12px">Clear</button>
+      </span>
+    </h2>
+    <pre class="log" id="log" aria-live="polite"></pre>
+  </section>
+
+  <section aria-labelledby="h-src">
+    <h2 id="h-src">Data sources</h2>
+    <div class="scroll"><table class="src"><thead><tr><th>Source</th><th>Status</th><th class="num">Rows</th><th>Updated</th></tr></thead><tbody id="sources"></tbody></table></div>
+    <div class="row">
+      <label class="field" for="setHistory"><span>Box scores and weather from</span>
+        <select id="setHistory" data-key="backfill_start"></select>
+      </label>
+      <label class="field" for="setPerRun"><span>Box scores per run</span>
+        <select id="setPerRun" data-key="max_games_per_run">
+          <option value="100">100 games</option>
+          <option value="300">300 games</option>
+          <option value="600">600 games</option>
+          <option value="1000">1,000 games</option>
+        </select>
+      </label>
+    </div>
+    <div class="banner" id="relayNote">Extra stats are not set up yet: snap counts, routes, separation, air yards, man/zone coverage, blitz rate, contested catches, drops and CB rating allowed. Ask Claude to add the free GitHub stats relay whenever you're ready.</div>
+    <p class="note">The first run loads history in batches. Each later run picks up where the last one stopped, then only fetches new games, line moves, injuries and forecasts.</p>
+  </section>
+
+  <section aria-labelledby="h-db">
+    <h2 id="h-db">Database <span id="savedAt">Not saved yet</span></h2>
+    <div class="stats">
+      <div class="stat"><b id="sTables">—</b><span>Tables</span></div>
+      <div class="stat"><b id="sRows">—</b><span>Rows</span></div>
+      <div class="stat"><b id="sFields">—</b><span>Fields tracked</span></div>
+      <div class="stat"><b id="sSize">—</b><span>Size</span></div>
+      <div class="stat"><b id="sBank">—</b><span>Bankroll</span></div>
+      <div class="stat"><b id="sKelly">—</b><span>Kelly fraction</span></div>
+    </div>
+    <div class="scroll"><table><thead><tr><th>Table</th><th class="num">Rows</th><th class="num">Fields</th></tr></thead><tbody id="tables"></tbody></table></div>
+    <div class="row">
+      <button id="exportDb" class="grow" disabled>Export database</button>
+      <label class="btnlike grow" style="display:inline-flex;align-items:center;justify-content:center" for="importDb">Import database
+        <input type="file" id="importDb" accept=".db,.sqlite,.sqlite3,application/octet-stream" style="position:absolute;opacity:0;width:1px;height:1px">
+      </label>
+      <button id="resetDb" class="danger grow" disabled>Reset database</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-hist">
+    <h2 id="h-hist">Run history</h2>
+    <div class="scroll"><table><thead><tr><th>#</th><th>When</th><th>Trigger</th><th>Status</th><th class="num">Secs</th></tr></thead><tbody id="history"></tbody></table></div>
+  </section>
+</div>
+
+<script type="text/x-python" id="engine-py">
+"""NFL Engine 8 core: database, pipeline runner, data ingest, status reporting."""
+import asyncio
+import csv
+import hashlib
+import io
+import json
+import math
+import sqlite3
+import time
+from datetime import date, datetime, timedelta, timezone
+
+VERSION = "8.0.5"
+DB_PATH = "/engine.db"
+SCHEMA_VERSION = 5
+FETCH = None
+
+GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
+ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl"
+METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
+METEO_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL);
+CREATE TABLE IF NOT EXISTS sources (
+  name TEXT PRIMARY KEY, fetched_at TEXT, status TEXT, rows INTEGER, message TEXT, hash TEXT
+);
+
+CREATE TABLE IF NOT EXISTS games (
+  game_id TEXT PRIMARY KEY, season INTEGER, week INTEGER, game_type TEXT, gameday TEXT,
+  kickoff_et TEXT, kickoff_utc TEXT, weekday TEXT, home_team TEXT, away_team TEXT,
+  neutral_site INTEGER, international INTEGER, stadium TEXT, venue_lat REAL, venue_lon REAL, altitude_ft REAL,
+  roof TEXT, indoor INTEGER, surface TEXT,
+  temp_f REAL, wind_mph REAL, humidity REAL, precip_in REAL, wx_at TEXT,
+  primetime INTEGER, monday INTEGER, thursday INTEGER, saturday INTEGER,
+  divisional INTEGER, conference_game INTEGER, playoff INTEGER, seed_impact REAL,
+  home_rest INTEGER, away_rest INTEGER, rest_adv INTEGER,
+  home_travel_mi REAL, away_travel_mi REAL, tz_crossed INTEGER, travel_dir TEXT,
+  home_short_week INTEGER, away_short_week INTEGER, home_long_week INTEGER, away_long_week INTEGER,
+  home_off_bye INTEGER, away_off_bye INTEGER,
+  home_coach TEXT, away_coach TEXT, home_coach_change INTEGER, away_coach_change INTEGER,
+  home_qb TEXT, away_qb TEXT,
+  home_score INTEGER, away_score INTEGER, margin INTEGER, total_points INTEGER, winner TEXT,
+  espn_id TEXT, detail_status TEXT, detail_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_games_season_week ON games(season, week);
+CREATE INDEX IF NOT EXISTS ix_games_kickoff ON games(kickoff_utc);
+CREATE INDEX IF NOT EXISTS ix_games_espn ON games(espn_id);
+
+CREATE TABLE IF NOT EXISTS players (
+  player_id TEXT PRIMARY KEY, name TEXT, position TEXT, team TEXT
+);
+
+CREATE TABLE IF NOT EXISTS player_games (
+  player_id TEXT, game_id TEXT, team TEXT, position TEXT,
+  injury_status TEXT, injury_type TEXT, practice_status TEXT, injury_risk REAL,
+  snaps INTEGER, snap_pct REAL, stat_sd REAL,
+  completions INTEGER, attempts INTEGER, pass_yds INTEGER, pass_td INTEGER, ints INTEGER,
+  sacks INTEGER, sack_yds INTEGER, passer_rating REAL,
+  qbr REAL, any_a REAL, air_yards REAL, air_yards_att REAL, yac REAL, dropbacks INTEGER,
+  time_to_throw REAL, blitz_rate_faced REAL,
+  carries INTEGER, rush_yds INTEGER, rush_td INTEGER, long_rush INTEGER,
+  broken_tackles INTEGER, yards_after_contact REAL, explosive_runs INTEGER,
+  targets INTEGER, receptions INTEGER, rec_yds INTEGER, rec_td INTEGER, drops INTEGER, contested_catch_rate REAL,
+  slot_snaps INTEGER, wide_snaps INTEGER, inline_snaps INTEGER, backfield_snaps INTEGER,
+  routes INTEGER, route_participation REAL, target_share REAL, air_yard_share REAL, wopr REAL,
+  separation REAL, coverage_matchup TEXT, cb_rating REAL, double_coverage_rate REAL,
+  tackles INTEGER, def_sacks REAL, tfl INTEGER, pass_def INTEGER, qb_hits INTEGER, def_ints INTEGER,
+  fumbles INTEGER, fumbles_lost INTEGER,
+  PRIMARY KEY (player_id, game_id)
+);
+CREATE INDEX IF NOT EXISTS ix_pg_game ON player_games(game_id);
+
+CREATE TABLE IF NOT EXISTS team_games (
+  game_id TEXT, team TEXT, opponent TEXT, is_home INTEGER,
+  points INTEGER, plays INTEGER, dropbacks INTEGER, pass_rate REAL, pace REAL,
+  epa_play REAL, success_rate REAL, early_down_sr REAL, late_down_sr REAL,
+  explosive_rate REAL, havoc_rate REAL,
+  early_down_epa REAL, late_down_epa REAL, pass_epa REAL, rush_epa REAL,
+  def_epa_allowed REAL, def_success_allowed REAL,
+  dvoa REAL, dvoa_pass REAL, dvoa_rush REAL, dvoa_red_zone REAL, dvoa_third_down REAL,
+  sack_rate REAL, adj_sack_rate REAL, pressure_rate REAL, blitz_rate REAL, man_rate REAL, zone_rate REAL,
+  adot_allowed REAL, yac_allowed REAL, explosive_allowed REAL, ppd REAL, ppd_allowed REAL,
+  rz_td_rate REAL, third_down_rate REAL, rz_epa REAL, third_epa REAL,
+  prwr REAL, pbwr REAL, adj_line_yards REAL, turnovers INTEGER, takeaways INTEGER,
+  PRIMARY KEY (game_id, team)
+);
+
+CREATE TABLE IF NOT EXISTS plays (
+  game_id TEXT, play_id TEXT, seq INTEGER, drive_id TEXT, period INTEGER, clock_sec INTEGER,
+  offense TEXT, defense TEXT, down INTEGER, distance INTEGER, ytg INTEGER,
+  ptype TEXT, yards INTEGER, td INTEGER, turnover INTEGER, scoring INTEGER, penalty INTEGER,
+  home_score INTEGER, away_score INTEGER, drive_result TEXT, ep REAL, epa REAL,
+  PRIMARY KEY (game_id, play_id)
+);
+
+CREATE TABLE IF NOT EXISTS odds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, game_id TEXT, book TEXT, ts TEXT, last_seen TEXT,
+  spread_open REAL, spread_current REAL, spread_close REAL, spread_move REAL,
+  ml_home_open INTEGER, ml_away_open INTEGER, ml_home INTEGER, ml_away INTEGER,
+  ml_home_close INTEGER, ml_away_close INTEGER,
+  total_open REAL, total_current REAL, total_close REAL,
+  juice_home INTEGER, juice_away INTEGER, juice_over INTEGER, juice_under INTEGER,
+  implied_home REAL, implied_away REAL, novig_home REAL, novig_away REAL,
+  public_pct REAL, handle_pct REAL, sharp_pct REAL,
+  steam_move INTEGER, rlm INTEGER, line_freeze INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_odds_game ON odds(game_id, book, id);
+
+CREATE TABLE IF NOT EXISTS ratings (
+  team TEXT, season INTEGER, week INTEGER,
+  elo REAL, power_rating REAL, srs REAL, pythag_wins REAL,
+  adj_eff REAL, off_eff REAL, def_eff REAL, net_eff REAL,
+  sos REAL, turnover_luck REAL, regression_score REAL,
+  PRIMARY KEY (team, season, week)
+);
+
+CREATE TABLE IF NOT EXISTS features (
+  game_id TEXT PRIMARY KEY, season INTEGER, week INTEGER, kickoff_utc TEXT, home_team TEXT, away_team TEXT,
+  is_final INTEGER, target_margin REAL, target_total REAL, target_home_win REAL, feats_json TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_features_kickoff ON features(kickoff_utc);
+
+CREATE TABLE IF NOT EXISTS predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, game_id TEXT, model TEXT, created_at TEXT,
+  pred_margin REAL, pred_total REAL, win_prob REAL, confidence REAL, variance REAL, shap_json TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_pred_game ON predictions(game_id);
+
+CREATE TABLE IF NOT EXISTS bets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, game_id TEXT, market TEXT, side TEXT,
+  line REAL, price INTEGER, model_prob REAL, novig_prob REAL, edge REAL, ev REAL,
+  kelly_fraction REAL, stake REAL, units REAL, placed_at TEXT,
+  closing_line REAL, closing_price INTEGER, clv REAL, result TEXT, profit REAL,
+  book TEXT, p_push REAL, model_only_prob REAL, status TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_bets_game ON bets(game_id, market);
+
+CREATE TABLE IF NOT EXISTS model_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, model TEXT, target TEXT, season INTEGER,
+  brier REAL, log_loss REAL, auc REAL, mae REAL, correlation REAL, rmse REAL, total_mae REAL, accuracy REAL,
+  mkt_mae REAL, mkt_total_mae REAL, mkt_brier REAL, n INTEGER, folds INTEGER,
+  roi REAL, yield REAL, win_rate REAL, units REAL, bankroll REAL, drawdown REAL, sharpe REAL,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS models (name TEXT PRIMARY KEY, created_at TEXT, blob BLOB, meta_json TEXT);
+
+CREATE TABLE IF NOT EXISTS runs (
+  run_id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT,
+  trigger TEXT, stages TEXT, status TEXT, seconds REAL, note TEXT
+);
+CREATE TABLE IF NOT EXISTS stage_status (
+  stage TEXT PRIMARY KEY, status TEXT, message TEXT, run_id INTEGER, updated_at TEXT, seconds REAL
+);
+"""
+
+DATA_TABLES = ["games", "players", "player_games", "team_games", "plays", "odds", "ratings", "features",
+               "predictions", "bets", "model_metrics"]
+KEY_COLUMNS = {"id", "run_id", "game_id", "player_id", "play_id", "team", "season", "week", "created_at",
+               "kickoff_utc", "home_team", "away_team"}
+
+DEFAULT_SETTINGS = {
+    "bankroll": 1000.0,
+    "kelly_fraction": 0.25,
+    "min_edge": 0.03,
+    "max_bet_pct": 0.05,
+    "unit_size": 10.0,
+    "games_start": 2010,
+    "backfill_start": 2022,
+    "max_games_per_run": 300,
+    "ewma_alpha": 0.15,
+    "elo_k": 20,
+    "elo_hfa": 40,
+    "train_start": 2012,
+    "market_features": 0,
+    "wf_block_weeks": 3,
+    "max_exposure": 0.25,
+}
+
+STAGES = [
+    ("check", "Engine check", 1, "Database health, schema and settings"),
+    ("ingest", "Data ingest", 2, "Schedules, scores, odds, weather, rest, travel, rosters, box scores, plays"),
+    ("features", "Feature engineering", 3, "EPA model, EWMA, opponent-adjusted (DVOA-style) ratings, Elo, SRS, Pythag, down splits, trench rates, line yards"),
+    ("train", "Model training", 4, "Ridge + gradient boosting + logistic ensemble, strict walk-forward tests, blending and calibration"),
+    ("predict", "Predictions", 4, "Margin, total, win probability, confidence and top drivers for the next 14 days"),
+    ("bet", "Betting engine", 5, "Model + market blend, no-vig, edge, EV, fractional Kelly sizing, settlement, CLV, backtest"),
+]
+STAGE_META = {k: (name, part) for k, name, part, _ in STAGES}
+HANDLERS = {}
+
+SOURCES = [
+    ("schedule", "Schedule, scores and lines", "nflverse"),
+    ("odds_live", "Live odds, open and current", "ESPN · DraftKings"),
+    ("rosters", "Rosters and positions", "ESPN"),
+    ("game_details", "Box scores, plays and injuries", "ESPN"),
+    ("weather", "Weather at kickoff", "Open-Meteo"),
+]
+
+# team: (conference, division, lat, lon, utc_offset_standard, elevation_ft)
+TEAMS = {
+    "ARI": ("NFC", "W", 33.528, -112.263, -7, 1070), "ATL": ("NFC", "S", 33.755, -84.401, -5, 1050),
+    "BAL": ("AFC", "N", 39.278, -76.623, -5, 30), "BUF": ("AFC", "E", 42.774, -78.787, -5, 600),
+    "CAR": ("NFC", "S", 35.226, -80.853, -5, 750), "CHI": ("NFC", "N", 41.862, -87.617, -6, 600),
+    "CIN": ("AFC", "N", 39.095, -84.516, -5, 490), "CLE": ("AFC", "N", 41.506, -81.700, -5, 580),
+    "DAL": ("NFC", "E", 32.748, -97.093, -6, 600), "DEN": ("AFC", "W", 39.744, -105.020, -7, 5280),
+    "DET": ("NFC", "N", 42.340, -83.046, -5, 600), "GB": ("NFC", "N", 44.501, -88.062, -6, 640),
+    "HOU": ("AFC", "S", 29.685, -95.411, -6, 50), "IND": ("AFC", "S", 39.760, -86.164, -5, 715),
+    "JAX": ("AFC", "S", 30.324, -81.637, -5, 15), "KC": ("AFC", "W", 39.049, -94.484, -6, 800),
+    "LA": ("NFC", "W", 33.953, -118.339, -8, 100), "LAC": ("AFC", "W", 33.953, -118.339, -8, 100),
+    "LV": ("AFC", "W", 36.091, -115.184, -8, 2030), "MIA": ("AFC", "E", 25.958, -80.239, -5, 10),
+    "MIN": ("NFC", "N", 44.974, -93.258, -6, 830), "NE": ("AFC", "E", 42.091, -71.264, -5, 290),
+    "NO": ("NFC", "S", 29.951, -90.081, -6, 5), "NYG": ("NFC", "E", 40.813, -74.074, -5, 10),
+    "NYJ": ("AFC", "E", 40.813, -74.074, -5, 10), "PHI": ("NFC", "E", 39.901, -75.168, -5, 30),
+    "PIT": ("AFC", "N", 40.447, -80.016, -5, 730), "SEA": ("NFC", "W", 47.595, -122.332, -8, 20),
+    "SF": ("NFC", "W", 37.403, -121.970, -8, 30), "TB": ("NFC", "S", 27.976, -82.503, -5, 25),
+    "TEN": ("AFC", "S", 36.166, -86.771, -6, 400), "WAS": ("NFC", "E", 38.908, -76.864, -5, 160),
+    "OAK": ("AFC", "W", 37.751, -122.201, -8, 10), "SD": ("AFC", "W", 32.783, -117.120, -8, 400),
+    "STL": ("NFC", "W", 38.633, -90.188, -6, 450),
+}
+CURRENT_TEAMS = [t for t in TEAMS if t not in ("OAK", "SD", "STL")]
+
+# (stadium name keywords, lat, lon, utc_offset_standard, elevation_ft)
+INTL = [
+    (("wembley",), 51.556, -0.280, 0, 100),
+    (("tottenham",), 51.604, -0.066, 0, 100),
+    (("twickenham",), 51.456, -0.341, 0, 30),
+    (("allianz",), 48.219, 11.625, 1, 1700),
+    (("frankfurt", "deutsche bank"), 50.069, 8.645, 1, 330),
+    (("olympiastadion", "berlin"), 52.515, 13.239, 1, 160),
+    (("azteca", "banorte"), 19.303, -99.150, -6, 7350),
+    (("corinthians", "neo qu", "sao paulo", "são paulo"), -23.545, -46.474, -3, 2600),
+    (("croke",), 53.361, -6.251, 0, 60),
+    (("bernab",), 40.453, -3.688, 1, 2190),
+    (("melbourne", "cricket ground"), -37.820, 144.983, 10, 100),
+    (("maracan",), -22.912, -43.230, -3, 30),
+    (("stade de france",), 48.924, 2.360, 1, 120),
+    (("rogers centre", "toronto"), 43.641, -79.389, -5, 250),
+]
+
+ESPN_TO_NFL = {"WSH": "WAS", "LAR": "LA"}
+NFL_TO_ESPN = {"WAS": "wsh", "LA": "lar"}
+POST_WEEK = {19: 1, 20: 2, 21: 3, 22: 5}
+SCRIM = {"pass", "sack", "rush"}
+
+
+def stage(key):
+    def deco(fn):
+        HANDLERS[key] = fn
+        return fn
+    return deco
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def iso(dt):
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def now():
+    return iso(utcnow())
+
+
+def parse_iso(s):
+    if not s:
+        return None
+    s = s.rstrip("Z")
+    fmt = "%Y-%m-%dT%H:%M:%S" if len(s) >= 19 else "%Y-%m-%dT%H:%M"
+    return datetime.strptime(s[:19], fmt).replace(tzinfo=timezone.utc)
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def num(x, cast=float):
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return None if isinstance(x, float) and math.isnan(x) else cast(x)
+    x = str(x).strip()
+    if x in ("", "NA", "--", "-", "nan", "None", "null"):
+        return None
+    try:
+        return cast(float(x))
+    except ValueError:
+        return None
+
+
+def dig(d, *keys):
+    for k in keys:
+        if isinstance(d, dict):
+            d = d.get(k)
+        elif isinstance(d, list) and isinstance(k, int) and -len(d) <= k < len(d):
+            d = d[k]
+        else:
+            return None
+    return d
+
+
+def mean(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def rate(a, b):
+    return a / b if b else None
+
+
+def connect():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def table_cols(con, table):
+    return [r["name"] for r in con.execute(f"PRAGMA table_info({table})")]
+
+
+def migrate(con):
+    row = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='meta'").fetchone()
+    old = None
+    if row:
+        v = con.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        old = int(v[0]) if v else None
+    if old is not None and old < SCHEMA_VERSION:
+        for t in DATA_TABLES:
+            exists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone()
+            if exists and con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0:
+                con.execute(f"DROP TABLE {t}")
+    con.executescript(SCHEMA)
+    ref = sqlite3.connect(":memory:")
+    ref.executescript(SCHEMA)
+    for (t,) in ref.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+        have = set(table_cols(con, t))
+        for _, name, typ, *_ in ref.execute(f"PRAGMA table_info({t})"):
+            if name not in have:
+                con.execute(f"ALTER TABLE {t} ADD COLUMN {name} {typ}")
+    ref.close()
+
+
+def init_db():
+    con = connect()
+    migrate(con)
+    for k, v in DEFAULT_SETTINGS.items():
+        con.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+    con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+    con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('engine_version', ?)", (VERSION,))
+    con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('created_at', ?)", (now(),))
+    con.execute("UPDATE runs SET status = 'interrupted', finished_at = ? WHERE status = 'running'", (now(),))
+    con.commit()
+    con.close()
+    log(f"Engine {VERSION} ready · schema v{SCHEMA_VERSION}")
+
+
+def reset_db():
+    con = connect()
+    names = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    for n in names:
+        con.execute(f"DROP TABLE IF EXISTS {n}")
+    con.commit()
+    con.close()
+    log("Database erased")
+    init_db()
+
+
+def settings(con):
+    return {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM settings")}
+
+
+def set_settings(values):
+    con = connect()
+    for k, v in values.items():
+        if k in DEFAULT_SETTINGS and num(v) is not None:
+            con.execute("INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)", (k, num(v)))
+            log(f"Setting {k} = {num(v):g}")
+    con.commit()
+    con.close()
+
+
+def data_columns(con, table):
+    return [c for c in table_cols(con, table) if c not in KEY_COLUMNS]
+
+
+def insert_rows(con, table, rows):
+    if not rows:
+        return 0
+    cols = table_cols(con, table)
+    sql = f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})"
+    con.executemany(sql, [tuple(r.get(c) for c in cols) for r in rows])
+    return len(rows)
+
+
+def upsert(con, table, rows, keys, coalesce=()):
+    if not rows:
+        return 0
+    cols = list(rows[0])
+    sets = ", ".join(
+        f"{c}=COALESCE(excluded.{c}, {table}.{c})" if c in coalesce else f"{c}=excluded.{c}"
+        for c in cols if c not in keys)
+    sql = (f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
+           f"ON CONFLICT({','.join(keys)}) DO UPDATE SET {sets}")
+    con.executemany(sql, [tuple(r.get(c) for c in cols) for r in rows])
+    return len(rows)
+
+
+def mark_source(con, name, status, rows=None, message="", h=None):
+    con.execute(
+        "INSERT INTO sources(name, fetched_at, status, rows, message, hash) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(name) DO UPDATE SET fetched_at=excluded.fetched_at, status=excluded.status, "
+        "rows=COALESCE(excluded.rows, sources.rows), message=excluded.message, hash=COALESCE(excluded.hash, sources.hash)",
+        (name, now(), status, rows, message, h))
+
+
+def get_source(con, name):
+    return con.execute("SELECT * FROM sources WHERE name = ?", (name,)).fetchone()
+
+
+async def fetch_text(url):
+    if FETCH is not None:
+        return await FETCH(url)
+    from pyodide.http import pyfetch
+    resp = await pyfetch(url)
+    if not resp.ok:
+        raise IOError(f"HTTP {resp.status}")
+    return await resp.string()
+
+
+async def fetch_json(url):
+    return json.loads(await fetch_text(url))
+
+
+async def gather_limited(fns, limit=6):
+    sem = asyncio.Semaphore(limit)
+
+    async def one(fn):
+        async with sem:
+            try:
+                return await fn()
+            except Exception as e:
+                return e
+    return await asyncio.gather(*(one(f) for f in fns))
+
+
+class SourceError(Exception):
+    pass
+
+
+def friendly(e):
+    s = str(e)
+    if isinstance(e, SourceError):
+        return s
+    if "Failed to fetch" in s or "NetworkError" in s or "Load failed" in s:
+        return "Couldn't reach the source. Check the connection."
+    return f"{type(e).__name__}: {s}"[:200]
+
+
+def implied(ml):
+    if ml is None or ml == 0:
+        return None
+    return 100 / (ml + 100) if ml > 0 else -ml / (-ml + 100)
+
+
+def novig(a, b):
+    if a is None or b is None or a + b == 0:
+        return None, None
+    return a / (a + b), b / (a + b)
+
+
+def us_dst(d):
+    mar = date(d.year, 3, 8)
+    start = mar + timedelta(days=(6 - mar.weekday()) % 7)
+    nov = date(d.year, 11, 1)
+    end = nov + timedelta(days=(6 - nov.weekday()) % 7)
+    return start <= d < end
+
+
+def kickoff_utc(gameday, gametime):
+    d = date.fromisoformat(gameday)
+    hh, mm = (int(x) for x in (gametime or "13:00").split(":")[:2])
+    dt = datetime(d.year, d.month, d.day, hh, mm, tzinfo=timezone.utc) + timedelta(hours=4 if us_dst(d) else 5)
+    return iso(dt)
+
+
+def miles(a, b):
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return round(3958.8 * 2 * math.asin(math.sqrt(h)), 1)
+
+
+def nfl_abbr(a):
+    a = (a or "").upper()
+    return ESPN_TO_NFL.get(a, a)
+
+
+def clock_sec(s):
+    if not s or ":" not in str(s):
+        return None
+    m, sec = str(s).split(":")[:2]
+    return (num(m, int) or 0) * 60 + (num(sec, int) or 0)
+
+
+def build_games(rows, start):
+    rows = [r for r in rows if (num(r.get("season"), int) or 0) >= start and r.get("gameday")]
+    rows.sort(key=lambda r: (r["gameday"], r.get("gametime") or ""))
+    stadium_home = {r["stadium"]: r["home_team"] for r in rows if r.get("location") == "Home" and r.get("stadium")}
+    coach = {}
+    out = []
+    for r in rows:
+        home, away = r["home_team"], r["away_team"]
+        ht, at = TEAMS.get(home), TEAMS.get(away)
+        name = (r.get("stadium") or "").lower()
+        intl = next((v for v in INTL if any(k in name for k in v[0])), None)
+        neutral = r.get("location") == "Neutral" or intl is not None
+        if intl:
+            venue = intl[1:]
+        else:
+            host = TEAMS.get(stadium_home.get(r.get("stadium")) if neutral else home) or ht
+            venue = (host[2], host[3], host[4], host[5]) if host else None
+        week = num(r.get("week"), int) or 0
+        hr, ar = num(r.get("home_rest"), int), num(r.get("away_rest"), int)
+        hs, as_ = num(r.get("home_score"), int), num(r.get("away_score"), int)
+        gt = (r.get("gametime") or "")[:5]
+        roof = (r.get("roof") or "").lower() or None
+        changes = {}
+        for side, team in (("home", home), ("away", away)):
+            c = r.get(f"{side}_coach") or None
+            prev = coach.get(team)
+            changes[side] = 1 if (c and prev and prev != c) else 0
+            if c:
+                coach[team] = c
+
+        def flags(rest):
+            if rest is None or week <= 1:
+                return 0, 0, 0
+            return int(rest <= 6), int(8 <= rest <= 12), int(rest >= 13)
+        hsw, hlw, hbye = flags(hr)
+        asw, alw, abye = flags(ar)
+        out.append({
+            "game_id": r["game_id"], "season": num(r["season"], int), "week": week, "game_type": r.get("game_type"),
+            "gameday": r["gameday"], "kickoff_et": gt or None, "kickoff_utc": kickoff_utc(r["gameday"], gt or None),
+            "weekday": r.get("weekday") or None, "home_team": home, "away_team": away,
+            "neutral_site": int(neutral), "international": int(intl is not None), "stadium": r.get("stadium") or None,
+            "venue_lat": venue[0] if venue else None, "venue_lon": venue[1] if venue else None,
+            "altitude_ft": venue[3] if venue else None,
+            "roof": roof, "indoor": int(roof in ("dome", "closed")), "surface": (r.get("surface") or "").strip() or None,
+            "temp_f": num(r.get("temp")), "wind_mph": num(r.get("wind")),
+            "primetime": int(gt >= "19:00" or r.get("weekday") == "Monday") if gt else 0,
+            "monday": int(r.get("weekday") == "Monday"), "thursday": int(r.get("weekday") == "Thursday"),
+            "saturday": int(r.get("weekday") == "Saturday"),
+            "divisional": num(r.get("div_game"), int) or 0,
+            "conference_game": int(bool(ht and at and ht[0] == at[0])),
+            "playoff": int(r.get("game_type") not in ("REG", None, "")),
+            "home_rest": hr, "away_rest": ar, "rest_adv": hr - ar if hr is not None and ar is not None else None,
+            "home_travel_mi": (miles(ht[2:4], venue) if neutral else 0.0) if ht and venue else None,
+            "away_travel_mi": miles(at[2:4], venue) if at and venue else None,
+            "tz_crossed": abs(venue[2] - at[4]) if at and venue else None,
+            "travel_dir": ("east" if venue[2] > at[4] else "west" if venue[2] < at[4] else "none") if at and venue else None,
+            "home_short_week": hsw, "away_short_week": asw, "home_long_week": hlw, "away_long_week": alw,
+            "home_off_bye": hbye, "away_off_bye": abye,
+            "home_coach": r.get("home_coach") or None, "away_coach": r.get("away_coach") or None,
+            "home_coach_change": changes["home"], "away_coach_change": changes["away"],
+            "home_qb": r.get("home_qb_name") or None, "away_qb": r.get("away_qb_name") or None,
+            "home_score": hs, "away_score": as_,
+            "margin": hs - as_ if hs is not None and as_ is not None else None,
+            "total_points": hs + as_ if hs is not None and as_ is not None else None,
+            "winner": (home if hs > as_ else away if as_ > hs else "TIE") if hs is not None and as_ is not None else None,
+            "espn_id": (r.get("espn") or "").split(".")[0] or None,
+        })
+    return out
+
+
+def consensus_odds(rows, ts):
+    out = []
+    for r in rows:
+        sl, tl = num(r.get("spread_line")), num(r.get("total_line"))
+        mh, ma = num(r.get("home_moneyline"), int), num(r.get("away_moneyline"), int)
+        if sl is None and tl is None and mh is None:
+            continue
+        final = num(r.get("home_score"), int) is not None
+        spread = -sl if sl is not None else None
+        ih, ia = implied(mh), implied(ma)
+        nh, na = novig(ih, ia)
+        out.append({
+            "game_id": r["game_id"], "book": "consensus", "ts": ts, "last_seen": ts,
+            "spread_current": spread, "spread_close": spread if final else None,
+            "total_current": tl, "total_close": tl if final else None,
+            "ml_home": mh, "ml_away": ma, "ml_home_close": mh if final else None, "ml_away_close": ma if final else None,
+            "juice_home": num(r.get("home_spread_odds"), int), "juice_away": num(r.get("away_spread_odds"), int),
+            "juice_over": num(r.get("over_odds"), int), "juice_under": num(r.get("under_odds"), int),
+            "implied_home": ih, "implied_away": ia, "novig_home": nh, "novig_away": na,
+        })
+    return out
+
+
+async def ingest_schedule(con, s):
+    text = await fetch_text(GAMES_URL)
+    start = int(s.get("games_start", 2010))
+    h = hashlib.sha1(f"{start}|{text}".encode()).hexdigest()
+    src = get_source(con, "schedule")
+    have = con.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+    if src and src["hash"] == h and have:
+        return "No changes since last check", have, h
+    raw = [r for r in csv.DictReader(io.StringIO(text)) if (num(r.get("season"), int) or 0) >= start]
+    games = build_games(raw, start)
+    coalesce = ("temp_f", "wind_mph", "home_score", "away_score", "margin", "total_points", "winner", "espn_id")
+    upsert(con, "games", games, ["game_id"], coalesce)
+    con.execute("DELETE FROM odds WHERE book = 'consensus'")
+    insert_rows(con, "odds", consensus_odds(raw, now()))
+    con.commit()
+    played = sum(1 for g in games if g["home_score"] is not None)
+    seasons = sorted({g["season"] for g in games})
+    log(f"  schedule: {len(games):,} games {seasons[0]}–{seasons[-1]} · {played:,} final")
+    return f"{len(games):,} games, {seasons[0]}–{seasons[-1]}", len(games), h
+
+
+def odds_line(v):
+    if v is None:
+        return None
+    v = str(v).strip().lower().lstrip("ou")
+    if v in ("pk", "pick", "even"):
+        return 0.0
+    return num(v)
+
+
+def odds_price(v):
+    if v is None:
+        return None
+    v = str(v).strip().upper()
+    return 100 if v == "EVEN" else num(v, int)
+
+
+def espn_snapshot(o):
+    ps, tot, ml = o.get("pointSpread") or {}, o.get("total") or {}, o.get("moneyline") or {}
+    cur = odds_line(dig(ps, "home", "close", "line"))
+    if cur is None:
+        cur = num(o.get("spread"))
+    tcur = odds_line(dig(tot, "over", "close", "line"))
+    if tcur is None:
+        tcur = num(o.get("overUnder"))
+    snap = {
+        "book": (dig(o, "provider", "name") or "espn").lower(),
+        "spread_open": odds_line(dig(ps, "home", "open", "line")), "spread_current": cur,
+        "total_open": odds_line(dig(tot, "over", "open", "line")), "total_current": tcur,
+        "ml_home_open": odds_price(dig(ml, "home", "open", "odds")), "ml_away_open": odds_price(dig(ml, "away", "open", "odds")),
+        "ml_home": odds_price(dig(ml, "home", "close", "odds")), "ml_away": odds_price(dig(ml, "away", "close", "odds")),
+        "juice_home": odds_price(dig(ps, "home", "close", "odds")), "juice_away": odds_price(dig(ps, "away", "close", "odds")),
+        "juice_over": odds_price(dig(tot, "over", "close", "odds")), "juice_under": odds_price(dig(tot, "under", "close", "odds")),
+    }
+    return snap if snap["spread_current"] is not None or snap["ml_home"] is not None else None
+
+
+SNAP_KEYS = ("spread_current", "total_current", "ml_home", "ml_away", "juice_home", "juice_away", "juice_over", "juice_under")
+
+
+def record_snapshot(con, game_id, snap, ts):
+    prev = con.execute("SELECT * FROM odds WHERE game_id = ? AND book = ? ORDER BY id DESC LIMIT 1",
+                       (game_id, snap["book"])).fetchone()
+    if prev and all(prev[k] == snap[k] for k in SNAP_KEYS):
+        con.execute("UPDATE odds SET last_seen = ? WHERE id = ?", (ts, prev["id"]))
+        return False
+    row = dict(snap, game_id=game_id, ts=ts, last_seen=ts)
+    for k, cur in (("spread_open", "spread_current"), ("total_open", "total_current"),
+                   ("ml_home_open", "ml_home"), ("ml_away_open", "ml_away")):
+        if row[k] is None:
+            row[k] = prev[k] if prev and prev[k] is not None else row[cur]
+    if row["spread_current"] is not None and row["spread_open"] is not None:
+        row["spread_move"] = row["spread_current"] - row["spread_open"]
+    row["steam_move"] = 0
+    if prev and prev["spread_current"] is not None and row["spread_current"] is not None:
+        diff = row["spread_current"] - prev["spread_current"]
+        last = parse_iso(prev["last_seen"] or prev["ts"])
+        if abs(diff) >= 1.0 and last and utcnow() - last <= timedelta(minutes=90):
+            row["steam_move"] = 1 if diff > 0 else -1
+    row["implied_home"], row["implied_away"] = implied(row["ml_home"]), implied(row["ml_away"])
+    row["novig_home"], row["novig_away"] = novig(row["implied_home"], row["implied_away"])
+    row["line_freeze"] = 0
+    insert_rows(con, "odds", [row])
+    return True
+
+
+def finalize_lines(con):
+    t = now()
+    games = con.execute(
+        "SELECT DISTINCT o.game_id, o.book FROM odds o JOIN games g ON g.game_id = o.game_id "
+        "WHERE o.book <> 'consensus' AND o.spread_close IS NULL AND g.kickoff_utc <= ?", (t,)).fetchall()
+    for g in games:
+        last = con.execute(
+            "SELECT o.* FROM odds o JOIN games g ON g.game_id = o.game_id WHERE o.game_id = ? AND o.book = ? "
+            "AND o.ts <= g.kickoff_utc ORDER BY o.id DESC LIMIT 1", (g["game_id"], g["book"])).fetchone()
+        if last is None:
+            last = con.execute("SELECT * FROM odds WHERE game_id = ? AND book = ? ORDER BY id DESC LIMIT 1",
+                               (g["game_id"], g["book"])).fetchone()
+        con.execute("UPDATE odds SET spread_close = ?, total_close = ?, ml_home_close = ?, ml_away_close = ? "
+                    "WHERE game_id = ? AND book = ?",
+                    (last["spread_current"], last["total_current"], last["ml_home"], last["ml_away"], g["game_id"], g["book"]))
+    cutoff = iso(utcnow() - timedelta(hours=24))
+    con.execute(
+        "UPDATE odds SET line_freeze = CASE WHEN ts <= ? THEN 1 ELSE 0 END WHERE spread_close IS NULL AND book <> 'consensus' "
+        "AND id IN (SELECT MAX(id) FROM odds WHERE book <> 'consensus' GROUP BY game_id, book)", (cutoff,))
+    return len(games)
+
+
+def game_for_event(con, ev, comp):
+    eid = str(ev.get("id") or "")
+    row = con.execute("SELECT * FROM games WHERE espn_id = ?", (eid,)).fetchone()
+    if row:
+        return row
+    sides = {c.get("homeAway"): nfl_abbr(dig(c, "team", "abbreviation")) for c in comp.get("competitors", [])}
+    d = parse_iso(ev.get("date"))
+    if not d or "home" not in sides:
+        return None
+    row = con.execute(
+        "SELECT * FROM games WHERE home_team = ? AND away_team = ? AND gameday BETWEEN ? AND ?",
+        (sides["home"], sides.get("away"), (d - timedelta(days=1)).date().isoformat(),
+         (d + timedelta(days=1)).date().isoformat())).fetchone()
+    if row:
+        con.execute("UPDATE games SET espn_id = ? WHERE game_id = ?", (eid, row["game_id"]))
+    return row
+
+
+async def ingest_live(con, s):
+    t = utcnow()
+    weeks = con.execute(
+        "SELECT DISTINCT season, game_type, week FROM games WHERE kickoff_utc BETWEEN ? AND ?",
+        (iso(t - timedelta(days=1)), iso(t + timedelta(days=8)))).fetchall()
+    if not weeks:
+        return "No games in the next 8 days", 0, None
+    ts = now()
+    snaps = finals = seen = 0
+    for w in weeks:
+        st = 2 if w["game_type"] == "REG" else 3
+        ew = w["week"] if st == 2 else POST_WEEK.get(w["week"])
+        if ew is None:
+            continue
+        data = await fetch_json(f"{ESPN}/scoreboard?seasontype={st}&week={ew}&dates={w['season']}")
+        for ev in data.get("events", []):
+            comp = (ev.get("competitions") or [{}])[0]
+            g = game_for_event(con, ev, comp)
+            if not g:
+                continue
+            seen += 1
+            state = dig(comp, "status", "type", "state") or dig(ev, "status", "type", "state")
+            if state == "pre" and comp.get("odds"):
+                snap = espn_snapshot(comp["odds"][0])
+                if snap and record_snapshot(con, g["game_id"], snap, ts):
+                    snaps += 1
+            if state == "post" and g["home_score"] is None:
+                sc = {c.get("homeAway"): num(c.get("score"), int) for c in comp.get("competitors", [])}
+                hs, as_ = sc.get("home"), sc.get("away")
+                if hs is not None and as_ is not None:
+                    con.execute(
+                        "UPDATE games SET home_score=?, away_score=?, margin=?, total_points=?, winner=? WHERE game_id=?",
+                        (hs, as_, hs - as_, hs + as_, g["home_team"] if hs > as_ else g["away_team"] if as_ > hs else "TIE",
+                         g["game_id"]))
+                    finals += 1
+    closed = finalize_lines(con)
+    con.commit()
+    log(f"  live odds: {seen} games checked · {snaps} line changes · {finals} new finals · {closed} lines closed")
+    return f"{seen} games · {snaps} line changes", con.execute("SELECT COUNT(*) FROM odds WHERE book <> 'consensus'").fetchone()[0], None
+
+
+def roster_athletes(data):
+    for grp in data.get("athletes", []) or []:
+        items = grp.get("items") if isinstance(grp, dict) and "items" in grp else [grp]
+        for a in items or []:
+            if isinstance(a, dict) and a.get("id"):
+                yield a
+
+
+async def ingest_rosters(con, s):
+    src = get_source(con, "rosters")
+    last = parse_iso(src["fetched_at"]) if src and src["status"] == "ok" else None
+    count = con.execute("SELECT COUNT(*) FROM players WHERE position IS NOT NULL").fetchone()[0]
+    if last and count and utcnow() - last < timedelta(hours=20):
+        return "Up to date (refreshes daily)", count, None
+    results = await gather_limited(
+        [lambda t=t: fetch_json(f"{ESPN}/teams/{NFL_TO_ESPN.get(t, t.lower())}/roster") for t in CURRENT_TEAMS], 6)
+    rows, fails = [], 0
+    for team, data in zip(CURRENT_TEAMS, results):
+        if isinstance(data, Exception):
+            fails += 1
+            continue
+        for a in roster_athletes(data):
+            rows.append({"player_id": f"espn:{a['id']}", "name": a.get("displayName") or a.get("fullName"),
+                         "position": dig(a, "position", "abbreviation"), "team": team})
+    if fails == len(CURRENT_TEAMS):
+        raise SourceError(friendly(results[0]))
+    upsert(con, "players", rows, ["player_id"])
+    con.commit()
+    log(f"  rosters: {len(rows):,} players from {len(CURRENT_TEAMS) - fails} teams")
+    return f"{len(rows):,} players" + (f" · {fails} teams failed" if fails else ""), len(rows), None
+
+
+def split_pair(v, sep):
+    parts = str(v or "").split(sep)
+    return (num(parts[0], int), num(parts[1], int)) if len(parts) == 2 else (None, None)
+
+
+def box_players(data, teams):
+    recs = {}
+    for grp in dig(data, "boxscore", "players") or []:
+        team = teams.get(str(dig(grp, "team", "id"))) or nfl_abbr(dig(grp, "team", "abbreviation"))
+        for st in grp.get("statistics", []) or []:
+            kind, keys = st.get("name"), st.get("keys") or []
+            for a in st.get("athletes", []) or []:
+                ath = a.get("athlete") or {}
+                if not ath.get("id"):
+                    continue
+                v = dict(zip(keys, a.get("stats") or []))
+                r = recs.setdefault(f"espn:{ath['id']}", {"player_id": f"espn:{ath['id']}", "team": team,
+                                                          "_name": ath.get("displayName")})
+                if kind == "passing":
+                    r["completions"], r["attempts"] = split_pair(v.get("completions/passingAttempts"), "/")
+                    r["sacks"], r["sack_yds"] = split_pair(v.get("sacks-sackYardsLost"), "-")
+                    r.update(pass_yds=num(v.get("passingYards"), int), pass_td=num(v.get("passingTouchdowns"), int),
+                             ints=num(v.get("interceptions"), int), qbr=num(v.get("adjQBR")),
+                             passer_rating=num(v.get("QBRating")))
+                elif kind == "rushing":
+                    r.update(carries=num(v.get("rushingAttempts"), int), rush_yds=num(v.get("rushingYards"), int),
+                             rush_td=num(v.get("rushingTouchdowns"), int), long_rush=num(v.get("longRushing"), int))
+                elif kind == "receiving":
+                    r.update(receptions=num(v.get("receptions"), int), rec_yds=num(v.get("receivingYards"), int),
+                             rec_td=num(v.get("receivingTouchdowns"), int), targets=num(v.get("receivingTargets"), int))
+                elif kind == "defensive":
+                    r.update(tackles=num(v.get("totalTackles"), int), def_sacks=num(v.get("sacks")),
+                             tfl=num(v.get("tacklesForLoss"), int), pass_def=num(v.get("passesDefended"), int),
+                             qb_hits=num(v.get("QBHits"), int))
+                elif kind == "interceptions":
+                    r["def_ints"] = num(v.get("interceptions"), int)
+                elif kind == "fumbles":
+                    r.update(fumbles=num(v.get("fumbles"), int), fumbles_lost=num(v.get("fumblesLost"), int))
+    targets = {}
+    for r in recs.values():
+        targets[r["team"]] = targets.get(r["team"], 0) + (r.get("targets") or 0)
+    for r in recs.values():
+        att, sk = r.get("attempts"), r.get("sacks") or 0
+        if att:
+            r["dropbacks"] = att + sk
+            r["any_a"] = round(((r.get("pass_yds") or 0) + 20 * (r.get("pass_td") or 0) - 45 * (r.get("ints") or 0)
+                                - (r.get("sack_yds") or 0)) / (att + sk), 2)
+        if r.get("targets") is not None and targets.get(r["team"]):
+            r["target_share"] = round(r["targets"] / targets[r["team"]], 3)
+    return recs
+
+
+def classify(type_text, text):
+    t, x = (type_text or "").lower(), (text or "").lower()
+    if "kneel" in x:
+        return "kneel"
+    if "spike" in x:
+        return "spike"
+    if "kickoff" in t:
+        return "kickoff"
+    if "punt" in t:
+        return "punt"
+    if "field goal" in t:
+        return "fg"
+    if "extra point" in t or "two-point" in t or "two point" in t or "conversion" in t:
+        return "pat"
+    if "sack" in t:
+        return "sack"
+    if "pass" in t or "interception" in t:
+        return "pass"
+    if "rush" in t:
+        return "rush"
+    if "fumble" in t:
+        return "sack" if "sacked" in x else "pass" if " pass " in x else "rush"
+    if "penalty" in t:
+        return "penalty"
+    if "timeout" in t or t.startswith("end ") or "two-minute" in t or "coin" in t:
+        return "admin"
+    return "other"
+
+
+def drive_points(d):
+    res, disp = (d.get("result") or "").upper(), (d.get("displayResult") or "").upper()
+    if "INT" in res or "FUMBLE" in res or "INTERCEPTION" in disp or "FUMBLE" in disp:
+        return 0, 0
+    if res == "TD" or "TOUCHDOWN" in disp:
+        return 7, 1
+    if res == "FG" or disp == "FIELD GOAL":
+        return 3, 0
+    return 0, 0
+
+
+def parse_plays(g, data, teams):
+    plays, drives = [], []
+    home, away = g["home_team"], g["away_team"]
+    for d in dig(data, "drives", "previous") or []:
+        dteam = teams.get(str(dig(d, "team", "id"))) or nfl_abbr(dig(d, "team", "abbreviation"))
+        pts, td = drive_points(d)
+        ytgs = []
+        result = d.get("displayResult") or d.get("result")
+        for p in d.get("plays", []) or []:
+            st = p.get("start") or {}
+            off = teams.get(str(dig(st, "team", "id"))) or dteam
+            down = num(st.get("down"), int)
+            ytg = num(st.get("yardsToEndzone"), int)
+            ptype = classify(dig(p, "type", "text"), p.get("text"))
+            if ptype in SCRIM and off == dteam and ytg is not None:
+                ytgs.append(ytg)
+            plays.append({
+                "game_id": g["game_id"], "play_id": str(p.get("id")), "seq": num(p.get("sequenceNumber"), int),
+                "drive_id": str(d.get("id")), "period": num(dig(p, "period", "number"), int),
+                "clock_sec": clock_sec(dig(p, "clock", "displayValue")),
+                "offense": off, "defense": away if off == home else home if off == away else None,
+                "down": down if down in (1, 2, 3, 4) else None, "distance": num(st.get("distance"), int), "ytg": ytg,
+                "ptype": ptype, "yards": num(p.get("statYardage"), int),
+                "td": int("touchdown" in (dig(p, "type", "text") or "").lower()),
+                "turnover": int(bool(p.get("isTurnover"))), "scoring": int(bool(p.get("scoringPlay"))),
+                "penalty": int(bool(p.get("isPenalty"))),
+                "home_score": num(p.get("homeScore"), int), "away_score": num(p.get("awayScore"), int),
+                "drive_result": result,
+            })
+        drives.append({"team": dteam, "points": pts, "td": td, "secs": clock_sec(dig(d, "timeElapsed", "displayValue")),
+                       "min_ytg": min(ytgs) if ytgs else None})
+    return plays, drives
+
+
+def success(p):
+    if p["td"] and p["ptype"] != "sack":
+        return 1
+    y, dist = p["yards"] or 0, p["distance"] or 10
+    need = 0.4 * dist if p["down"] == 1 else 0.6 * dist if p["down"] == 2 else dist
+    return int(p["ptype"] != "sack" and y >= need)
+
+
+def line_yards(y):
+    y = y or 0
+    if y < 0:
+        return 1.2 * y
+    if y <= 3:
+        return y
+    if y <= 10:
+        return 3 + 0.5 * (y - 3)
+    return 6.5
+
+
+def team_game_rows(g, plays, recs, drives):
+    off, dfn = {}, {}
+    for team, opp, is_home, pts in ((g["home_team"], g["away_team"], 1, g["home_score"]),
+                                    (g["away_team"], g["home_team"], 0, g["away_score"])):
+        P = [p for p in plays if p["offense"] == team and p["ptype"] in SCRIM and p["down"]]
+        db = [p for p in P if p["ptype"] in ("pass", "sack")]
+        ru = [p for p in P if p["ptype"] == "rush"]
+        sk = sum(1 for p in P if p["ptype"] == "sack")
+        expl = sum(1 for p in P if (p["ptype"] == "rush" and (p["yards"] or 0) >= 10)
+                   or (p["ptype"] == "pass" and (p["yards"] or 0) >= 20))
+        third = [p for p in P if p["down"] == 3]
+        dr = [d for d in drives if d["team"] == team]
+        rz = [d for d in dr if d["min_ytg"] is not None and d["min_ytg"] <= 20]
+        R = [r for r in recs.values() if r["team"] == team]
+
+        def tot(k):
+            return sum(r.get(k) or 0 for r in R)
+        secs = sum(d["secs"] or 0 for d in dr)
+        off[team] = {
+            "game_id": g["game_id"], "team": team, "opponent": opp, "is_home": is_home, "points": pts,
+            "plays": len(P), "dropbacks": len(db), "pass_rate": rate(len(db), len(P)), "pace": rate(secs, len(P)),
+            "success_rate": mean([success(p) for p in P]),
+            "early_down_sr": mean([success(p) for p in P if p["down"] in (1, 2)]),
+            "late_down_sr": mean([success(p) for p in P if p["down"] in (3, 4)]),
+            "explosive_rate": rate(expl, len(P)), "sack_rate": rate(sk, len(db)),
+            "adj_line_yards": mean([line_yards(p["yards"]) for p in ru]),
+            "ppd": rate(sum(d["points"] for d in dr), len(dr)),
+            "rz_td_rate": rate(sum(d["td"] for d in rz), len(rz)),
+            "third_down_rate": mean([success(p) for p in third]),
+            "turnovers": tot("ints") + tot("fumbles_lost"),
+        }
+        dfn[team] = {"sacks": tot("def_sacks"), "qb_hits": tot("qb_hits"), "tfl": tot("tfl"),
+                     "pd": tot("pass_def"), "ints": tot("def_ints"), "fumbles_lost": tot("fumbles_lost")}
+    for team, row in off.items():
+        o, d = off[row["opponent"]], dfn[team]
+        row["pressure_rate"] = rate(d["sacks"] + d["qb_hits"], o["dropbacks"])
+        row["prwr"] = row["pressure_rate"]
+        row["havoc_rate"] = rate(d["tfl"] + d["pd"] + d["ints"] + dfn[row["opponent"]]["fumbles_lost"], o["plays"])
+        row["takeaways"] = o["turnovers"]
+        row["def_success_allowed"] = o["success_rate"]
+        row["explosive_allowed"] = o["explosive_rate"]
+        row["ppd_allowed"] = o["ppd"]
+    for row in off.values():
+        p = off[row["opponent"]]["pressure_rate"]
+        row["pbwr"] = 1 - p if p is not None else None
+    return list(off.values())
+
+
+def store_summary(con, g, data, final):
+    teams = {}
+    for grp in (dig(data, "boxscore", "players") or []) + (dig(data, "boxscore", "teams") or []):
+        tid, ab = dig(grp, "team", "id"), dig(grp, "team", "abbreviation")
+        if tid and ab:
+            teams[str(tid)] = nfl_abbr(ab)
+    recs = box_players(data, teams) if final else {}
+    for entry in data.get("injuries", []) or []:
+        team = nfl_abbr(dig(entry, "team", "abbreviation"))
+        for inj in entry.get("injuries", []) or []:
+            ath = inj.get("athlete") or {}
+            if not ath.get("id"):
+                continue
+            r = recs.setdefault(f"espn:{ath['id']}", {"player_id": f"espn:{ath['id']}", "team": team,
+                                                      "_name": ath.get("displayName")})
+            r["injury_status"] = inj.get("status")
+            r["injury_type"] = dig(inj, "details", "type") or dig(inj, "type", "description")
+            r["_pos"] = dig(ath, "position", "abbreviation")
+    pos = {}
+    if recs:
+        ids = list(recs)
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            for row in con.execute(f"SELECT player_id, position FROM players WHERE player_id IN ({','.join('?' * len(chunk))})", chunk):
+                pos[row["player_id"]] = row["position"]
+    players = []
+    for pid, r in recs.items():
+        r["game_id"] = g["game_id"]
+        r["position"] = pos.get(pid) or r.get("_pos")
+        players.append({"player_id": pid, "name": r.pop("_name", None), "position": r.pop("_pos", None) or r["position"],
+                        "team": r["team"]})
+    if players:
+        con.executemany(
+            "INSERT INTO players(player_id, name, position, team) VALUES (?, ?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET "
+            "name=COALESCE(excluded.name, players.name), position=COALESCE(players.position, excluded.position), "
+            "team=COALESCE(players.team, excluded.team)",
+            [(p["player_id"], p["name"], p["position"], p["team"]) for p in players])
+    con.execute("DELETE FROM player_games WHERE game_id = ?", (g["game_id"],))
+    insert_rows(con, "player_games", list(recs.values()))
+    status = "pre"
+    if final:
+        plays, drives = parse_plays(g, data, teams)
+        con.execute("DELETE FROM plays WHERE game_id = ?", (g["game_id"],))
+        con.execute("DELETE FROM team_games WHERE game_id = ?", (g["game_id"],))
+        if plays:
+            insert_rows(con, "plays", plays)
+            insert_rows(con, "team_games", team_game_rows(g, plays, recs, drives))
+            status = "final"
+        else:
+            status = "missing" if not recs else "final"
+    con.execute("UPDATE games SET detail_status = ?, detail_at = ? WHERE game_id = ?", (status, now(), g["game_id"]))
+    return status
+
+
+async def ingest_details(con, s):
+    start, limit = int(s.get("backfill_start", 2022)), int(s.get("max_games_per_run", 300))
+    t = utcnow()
+    where = ("espn_id IS NOT NULL AND season >= ? AND home_score IS NOT NULL "
+             "AND COALESCE(detail_status, '') NOT IN ('final', 'missing')")
+    backlog = con.execute(f"SELECT COUNT(*) FROM games WHERE {where}", (start,)).fetchone()[0]
+    finals = con.execute(f"SELECT * FROM games WHERE {where} ORDER BY gameday DESC LIMIT ?", (start, limit)).fetchall()
+    pre = con.execute(
+        "SELECT * FROM games WHERE espn_id IS NOT NULL AND home_score IS NULL AND kickoff_utc BETWEEN ? AND ?",
+        (iso(t - timedelta(hours=6)), iso(t + timedelta(days=8)))).fetchall()
+    if not finals and not pre:
+        done = con.execute("SELECT COUNT(*) FROM games WHERE detail_status = 'final'").fetchone()[0]
+        return "Up to date", done, None
+    if finals:
+        log(f"  box scores: {len(finals)} of {backlog} games to load this run")
+    counts = {"final": 0, "pre": 0, "missing": 0, "failed": 0}
+    first_error = []
+
+    async def work(g, final):
+        try:
+            data = await fetch_json(f"{ESPN}/summary?event={g['espn_id']}")
+        except Exception as e:
+            counts["failed"] += 1
+            first_error.append(e)
+            return
+        counts[store_summary(con, g, data, final)] += 1
+        n = counts["final"] + counts["missing"]
+        if final and n % 25 == 0:
+            con.commit()
+            log(f"    {n} of {len(finals)} loaded")
+    await gather_limited([lambda g=g: work(g, True) for g in finals] + [lambda g=g: work(g, False) for g in pre], 6)
+    con.commit()
+    if counts["failed"] and counts["failed"] == len(finals) + len(pre):
+        raise SourceError(friendly(first_error[0]))
+    left = backlog - counts["final"] - counts["missing"]
+    msg = f"{counts['final']} box scores · {counts['pre']} injury reports"
+    if left > 0:
+        msg += f" · {left} games left, next run continues"
+    if counts["failed"]:
+        msg += f" · {counts['failed']} failed"
+    log(f"  box scores: {msg}")
+    total = con.execute("SELECT COUNT(*) FROM games WHERE detail_status = 'final'").fetchone()[0]
+    return msg, total, None
+
+
+async def ingest_weather(con, s):
+    t = utcnow()
+    start = int(s.get("backfill_start", 2022))
+    rows = con.execute(
+        "SELECT game_id, season, kickoff_utc, venue_lat, venue_lon FROM games "
+        "WHERE COALESCE(indoor, 0) = 0 AND venue_lat IS NOT NULL AND season >= ? AND kickoff_utc <= ? "
+        "AND (wx_at IS NULL OR kickoff_utc >= ?)",
+        (start, iso(t + timedelta(days=15)), iso(t - timedelta(days=1)))).fetchall()
+    if not rows:
+        return "Up to date", con.execute("SELECT COUNT(*) FROM games WHERE wx_at IS NOT NULL").fetchone()[0], None
+    groups = {}
+    for r in rows:
+        k = parse_iso(r["kickoff_utc"])
+        api = "archive" if k < t - timedelta(days=6) else "forecast"
+        key = (round(r["venue_lat"], 3), round(r["venue_lon"], 3), api, r["season"])
+        groups.setdefault(key, []).append((r, k))
+    hourly = "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m"
+
+    def url(key, items):
+        lat, lon, api, _ = key
+        days = [k for _, k in items]
+        sd = min(days).date().isoformat()
+        ed = min(max(days) + timedelta(days=1), t + timedelta(days=15)).date().isoformat()
+        base = METEO_ARCHIVE if api == "archive" else METEO_FORECAST
+        return (f"{base}?latitude={lat}&longitude={lon}&start_date={sd}&end_date={ed}&hourly={hourly}"
+                "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=GMT")
+    keys = list(groups)
+    results = await gather_limited([lambda k=k: fetch_json(url(k, groups[k])) for k in keys], 4)
+    filled = fails = 0
+    ts = now()
+    for key, data in zip(keys, results):
+        if isinstance(data, Exception):
+            fails += 1
+            continue
+        h = data.get("hourly") or {}
+        idx = {tm: i for i, tm in enumerate(h.get("time") or [])}
+
+        def vals(name, i0):
+            arr = h.get(name) or []
+            return [arr[i] for i in range(i0, min(i0 + 4, len(arr))) if arr[i] is not None]
+        for r, k in groups[key]:
+            i0 = idx.get(k.strftime("%Y-%m-%dT%H:00"))
+            if i0 is None:
+                continue
+            temp, wind = vals("temperature_2m", i0)[:1], vals("wind_speed_10m", i0)[:1]
+            hum, prc = vals("relative_humidity_2m", i0), vals("precipitation", i0)
+            upcoming = k >= t
+            con.execute(
+                "UPDATE games SET temp_f = CASE WHEN ? THEN ? ELSE COALESCE(temp_f, ?) END, "
+                "wind_mph = CASE WHEN ? THEN ? ELSE COALESCE(wind_mph, ?) END, humidity = ?, precip_in = ?, wx_at = ? "
+                "WHERE game_id = ?",
+                (upcoming, round(temp[0]) if temp else None, round(temp[0]) if temp else None,
+                 upcoming, round(wind[0]) if wind else None, round(wind[0]) if wind else None,
+                 round(mean(hum)) if hum else None, round(sum(prc), 2) if prc else None, ts, r["game_id"]))
+            filled += 1
+    con.commit()
+    if fails and fails == len(keys):
+        raise SourceError(friendly(results[0]))
+    log(f"  weather: {filled} games from {len(keys) - fails} venue lookups" + (f" · {fails} failed" if fails else ""))
+    return f"{filled} games" + (f" · {fails} lookups failed" if fails else ""), \
+        con.execute("SELECT COUNT(*) FROM games WHERE wx_at IS NOT NULL").fetchone()[0], None
+
+
+INGEST_STEPS = [
+    ("schedule", ingest_schedule),
+    ("odds_live", ingest_live),
+    ("rosters", ingest_rosters),
+    ("game_details", ingest_details),
+    ("weather", ingest_weather),
+]
+
+
+async def need(*pkgs):
+    try:
+        import pyodide_js
+    except ImportError:
+        return
+    for p in pkgs:
+        await pyodide_js.loadPackage(p)
+
+
+def get_meta(con, key):
+    r = con.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return r[0] if r else None
+
+
+def set_meta(con, key, value):
+    con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, str(value)))
+
+
+def half_secs(period, clock):
+    if period is None or clock is None:
+        return None
+    return clock + 900 if period in (1, 3) else clock
+
+
+NON_STATE = {"kickoff", "pat", "admin"}
+
+
+def ep_basis(np, ytg, down, dist, hs):
+    y = ytg / 100.0
+    d = np.clip(dist, 1, 30)
+    ld = np.log(d)
+    d2, d3, d4 = (down == 2) * 1.0, (down == 3) * 1.0, (down == 4) * 1.0
+    gtg = (dist >= ytg) * 1.0
+    t = hs / 1800.0
+    late = (hs < 120) * 1.0
+    rz = (ytg <= 10) * 1.0
+    return np.column_stack([np.ones_like(y), y, y ** 2, y ** 3, ld, d2, d3, d4, d2 * ld, d3 * ld, d4 * ld,
+                            d3 * y, d4 * y, gtg, gtg * y, t, late, late * y, rz, rz * y, t * y])
+
+
+def score_events(gp, home, away):
+    ev = [None] * len(gp)
+    ph = pa = 0
+    for i, p in enumerate(gp):
+        h, a = p["home_score"], p["away_score"]
+        if h is None or a is None:
+            continue
+        dh, da = h - ph, a - pa
+        ph, pa = h, a
+        if p["ptype"] == "pat":
+            continue
+        inc, team = (dh, home) if dh > 0 else (da, away) if da > 0 else (0, None)
+        if inc >= 6:
+            ev[i] = (team, 7)
+        elif inc == 3:
+            ev[i] = (team, 3)
+        elif inc == 2:
+            ev[i] = (team, 2)
+    return ev
+
+
+def half_of(period):
+    return 1 if (period or 1) <= 2 else 2 if period <= 4 else 3
+
+
+def compute_epa(con):
+    import numpy as np
+    games = {r["game_id"]: (r["home_team"], r["away_team"]) for r in con.execute("SELECT game_id, home_team, away_team FROM games")}
+    rows = con.execute(
+        "SELECT game_id, play_id, seq, period, clock_sec, offense, down, distance, ytg, ptype, yards, home_score, away_score "
+        "FROM plays ORDER BY game_id, seq").fetchall()
+    by_game = {}
+    for r in rows:
+        by_game.setdefault(r["game_id"], []).append(dict(r))
+    states, labels = [], []
+    for gid, gp in by_game.items():
+        if gid not in games:
+            continue
+        home, away = games[gid]
+        ev = score_events(gp, home, away)
+        for p, e in zip(gp, ev):
+            p["_ev"] = e
+        nxt, cur_half = None, None
+        for p in reversed(gp):
+            h = half_of(p["period"])
+            if h != cur_half:
+                nxt, cur_half = None, h
+            if p["_ev"]:
+                nxt = p["_ev"]
+            p["_hs"] = half_secs(p["period"], p["clock_sec"])
+            p["_state"] = (p["down"] is not None and p["ytg"] is not None and 0 < p["ytg"] < 100 and p["offense"]
+                           and p["ptype"] not in NON_STATE and p["_hs"] is not None)
+            if p["_state"]:
+                states.append(p)
+                labels.append(0 if nxt is None else nxt[1] if nxt[0] == p["offense"] else -nxt[1])
+    if len(states) < 500:
+        return None
+    ytg = np.array([p["ytg"] for p in states], float)
+    down = np.array([p["down"] for p in states], float)
+    dist = np.array([p["distance"] or 10 for p in states], float)
+    hs = np.array([p["_hs"] for p in states], float)
+    X = ep_basis(np, ytg, down, dist, hs)
+    y = np.array(labels, float)
+    w = np.linalg.solve(X.T @ X + 1e-3 * np.eye(X.shape[1]), X.T @ y)
+    ep = X @ w
+    r2 = 1 - float(((y - ep) ** 2).sum() / ((y - y.mean()) ** 2).sum())
+    for p, v in zip(states, ep):
+        p["_ep"] = float(v)
+    updates = []
+    for gid, gp in by_game.items():
+        n = len(gp)
+        for i, p in enumerate(gp):
+            if not p.get("_state"):
+                continue
+            epa = None
+            if p["ptype"] in SCRIM:
+                if p["_ev"]:
+                    team, pts = p["_ev"]
+                    epa = (pts if team == p["offense"] else -pts) - p["_ep"]
+                else:
+                    j, nxt_ep = i + 1, None
+                    h = half_of(p["period"])
+                    while j < n and half_of(gp[j]["period"]) == h:
+                        q = gp[j]
+                        if q["_ev"] and q["ptype"] not in SCRIM and not q.get("_state"):
+                            team, pts = q["_ev"]
+                            nxt_ep = pts if team == p["offense"] else -pts
+                            break
+                        if q.get("_state"):
+                            nxt_ep = q["_ep"] if q["offense"] == p["offense"] else -q["_ep"]
+                            break
+                        j += 1
+                    epa = (nxt_ep if nxt_ep is not None else 0.0) - p["_ep"]
+            updates.append((round(p["_ep"], 4), None if epa is None else round(epa, 4), gid, p["play_id"]))
+    con.execute("UPDATE plays SET ep = NULL, epa = NULL")
+    con.executemany("UPDATE plays SET ep = ?, epa = ? WHERE game_id = ? AND play_id = ?", updates)
+    agg = {}
+    for gid, ppid, epa, off, down, ytg, ptype in con.execute(
+            "SELECT game_id, play_id, epa, offense, down, ytg, ptype FROM plays WHERE epa IS NOT NULL AND ptype IN ('pass','sack','rush')"):
+        a = agg.setdefault((gid, off), {"all": [], "pass": [], "rush": [], "early": [], "late": [], "rz": [], "third": []})
+        a["all"].append(epa)
+        a["pass" if ptype in ("pass", "sack") else "rush"].append(epa)
+        a["early" if down in (1, 2) else "late"].append(epa)
+        if ytg is not None and ytg <= 20:
+            a["rz"].append(epa)
+        if down == 3:
+            a["third"].append(epa)
+    tg_updates = []
+    for (gid, team), a in agg.items():
+        tg_updates.append((mean(a["all"]), mean(a["pass"]), mean(a["rush"]), mean(a["early"]), mean(a["late"]),
+                           mean(a["rz"]), mean(a["third"]), gid, team))
+    con.executemany("UPDATE team_games SET epa_play=?, pass_epa=?, rush_epa=?, early_down_epa=?, late_down_epa=?, "
+                    "rz_epa=?, third_epa=? WHERE game_id=? AND team=?", tg_updates)
+    con.execute("UPDATE team_games SET def_epa_allowed = (SELECT o.epa_play FROM team_games o "
+                "WHERE o.game_id = team_games.game_id AND o.team = team_games.opponent)")
+    return {"plays": len(states), "r2": r2, "team_games": len(tg_updates)}
+
+
+OFF_KEYS = ["epa_play", "pass_epa", "rush_epa", "early_down_epa", "late_down_epa", "rz_epa", "third_epa",
+            "success_rate", "early_down_sr", "late_down_sr", "explosive_rate", "ppd", "rz_td_rate", "third_down_rate",
+            "pace", "pass_rate", "sack_rate", "pbwr", "adj_line_yards", "turnovers"]
+DEF_KEYS = ["epa_play", "pass_epa", "rush_epa", "rz_epa", "third_epa", "success_rate", "explosive_rate", "ppd",
+            "adj_line_yards", "sack_rate"]
+OWN_DEF_KEYS = ["pressure_rate", "havoc_rate", "takeaways"]
+ADJ_KEYS = ["dvoa", "dvoa_pass", "dvoa_rush", "dvoa_red_zone", "dvoa_third_down"]
+ADJ_SRC = {"dvoa": "epa_play", "dvoa_pass": "pass_epa", "dvoa_rush": "rush_epa",
+           "dvoa_red_zone": "rz_epa", "dvoa_third_down": "third_epa"}
+
+
+def ewma(state, key, x, a):
+    if x is None:
+        return
+    v = state.get(key)
+    state[key] = x if v is None else v + a * (x - v)
+
+
+def elo_prob(diff):
+    return 1 / (1 + 10 ** (-diff / 400))
+
+
+def solve_srs(results):
+    if not results:
+        return {}
+    marg, opps = {}, {}
+    for t, o, m in results:
+        marg.setdefault(t, []).append(m)
+        opps.setdefault(t, []).append(o)
+    avg = {t: sum(v) / len(v) for t, v in marg.items()}
+    r = dict(avg)
+    for _ in range(25):
+        r = {t: avg[t] + sum(r.get(o, 0) for o in opps[t]) / len(opps[t]) for t in avg}
+        m = sum(r.values()) / len(r)
+        r = {t: v - m for t, v in r.items()}
+    return r
+
+
+def market_lines(con):
+    out = {}
+    for r in con.execute("SELECT * FROM odds WHERE book = 'consensus'"):
+        out[r["game_id"]] = {"spread": r["spread_close"] if r["spread_close"] is not None else r["spread_current"],
+                             "total": r["total_close"] if r["total_close"] is not None else r["total_current"],
+                             "prob": r["novig_home"]}
+    for r in con.execute("SELECT o.* FROM odds o JOIN (SELECT MAX(id) id FROM odds WHERE book <> 'consensus' "
+                         "GROUP BY game_id) m ON m.id = o.id"):
+        cur = out.setdefault(r["game_id"], {})
+        sp = r["spread_close"] if r["spread_close"] is not None else r["spread_current"]
+        tt = r["total_close"] if r["total_close"] is not None else r["total_current"]
+        if sp is not None:
+            cur["spread"] = sp
+        if tt is not None:
+            cur["total"] = tt
+        nh, na = novig(implied(r["ml_home_close"] or r["ml_home"]), implied(r["ml_away_close"] or r["ml_away"]))
+        if nh is not None:
+            cur["prob"] = nh
+        cur["spread_open"] = r["spread_open"]
+    return out
+
+
+def build_ratings(con, s):
+    a = float(s.get("ewma_alpha", 0.15))
+    K, HFA = float(s.get("elo_k", 20)), float(s.get("elo_hfa", 40))
+    games = [dict(r) for r in con.execute("SELECT * FROM games ORDER BY kickoff_utc, game_id")]
+    tg = {(r["game_id"], r["team"]): dict(r) for r in con.execute("SELECT * FROM team_games")}
+    fum = {(r["game_id"], r["team"]): (r["f"] or 0, r["fl"] or 0) for r in con.execute(
+        "SELECT game_id, team, SUM(fumbles) f, SUM(fumbles_lost) fl FROM player_games GROUP BY game_id, team")}
+    inj = {}
+    for r in con.execute("SELECT game_id, team, position, injury_status FROM player_games "
+                         "WHERE injury_status IN ('Out', 'Doubtful', 'Injured Reserve')"):
+        d = inj.setdefault((r["game_id"], r["team"]), {"out": 0, "qb_out": 0})
+        d["out"] += 1
+        if r["position"] == "QB":
+            d["qb_out"] = 1
+    mkt = market_lines(con)
+    elo, off, dfn, last_qb, last_season = {}, {}, {}, {}, None
+    season_st, results, srs, srs_key = {}, [], {}, None
+    lg = {}
+    ratings, feats, adj_updates = [], [], []
+
+    def season_state(t):
+        return season_st.setdefault(t, {"pf": 0, "pa": 0, "w": 0.0, "g": 0, "opp_elo": [], "luck": 0.0, "luck_n": 0})
+
+    for g in games:
+        season, week = g["season"], g["week"]
+        if season != last_season:
+            for t in list(elo):
+                elo[t] = 1505 + (elo[t] - 1505) * (2 / 3)
+            for st in (off, dfn):
+                for t, d in st.items():
+                    for k, v in d.items():
+                        base = 0.0 if k in ADJ_KEYS else lg.get(k)
+                        if v is not None and base is not None:
+                            d[k] = base + (v - base) * 0.67
+            season_st, results, srs, srs_key, last_season = {}, [], {}, None, season
+        if srs_key != week:
+            srs, srs_key = solve_srs(results), week
+        h, aw = g["home_team"], g["away_team"]
+        for t in (h, aw):
+            elo.setdefault(t, 1500.0)
+            off.setdefault(t, {})
+            dfn.setdefault(t, {})
+        hfa = 0 if g["neutral_site"] and not g["international"] else HFA
+        if g["neutral_site"] and g["international"]:
+            hfa = HFA * 0.5
+        diff = elo[h] + hfa - elo[aw]
+
+        def snap(t):
+            ss = season_state(t)
+            o, d = off[t], dfn[t]
+            pyth = None
+            if ss["g"] and ss["pf"] + ss["pa"] > 0:
+                pyth = ss["pf"] ** 2.37 / (ss["pf"] ** 2.37 + ss["pa"] ** 2.37)
+            net = None
+            if o.get("dvoa") is not None and d.get("dvoa") is not None:
+                net = o["dvoa"] - d["dvoa"]
+            elo_pts = (elo[t] - 1500) / 25
+            power = elo_pts if net is None else 0.5 * elo_pts + 0.5 * net / 100 * 62
+            return {"elo": elo[t], "power": power, "srs": srs.get(t), "pyth": pyth,
+                    "pythag_wins": pyth * ss["g"] if pyth is not None else None,
+                    "regression": (pyth - ss["w"] / ss["g"]) if pyth is not None else None,
+                    "sos": (mean(ss["opp_elo"]) - 1500) if ss["opp_elo"] else None,
+                    "luck": ss["luck"] if ss["luck_n"] else None, "off_eff": o.get("dvoa"), "def_eff": d.get("dvoa"),
+                    "net": net}
+        sh, sa = snap(h), snap(aw)
+        for t, sn in ((h, sh), (aw, sa)):
+            ratings.append({"team": t, "season": season, "week": week, "elo": round(sn["elo"], 1),
+                            "power_rating": round(sn["power"], 2), "srs": sn["srs"], "pythag_wins": sn["pythag_wins"],
+                            "adj_eff": sn["net"], "off_eff": sn["off_eff"], "def_eff": sn["def_eff"], "net_eff": sn["net"],
+                            "sos": sn["sos"], "turnover_luck": sn["luck"], "regression_score": sn["regression"]})
+        f = {"elo_diff": diff, "elo_prob": elo_prob(diff), "elo_spread": -diff / 25,
+             "home_elo": elo[h], "away_elo": elo[aw], "power_diff": sh["power"] - sa["power"]}
+        for k in ("srs", "pyth", "regression", "sos", "luck", "off_eff", "def_eff", "net"):
+            f[f"home_{k}"], f[f"away_{k}"] = sh[k], sa[k]
+            f[f"diff_{k}"] = sh[k] - sa[k] if sh[k] is not None and sa[k] is not None else None
+        for side, t, o_t in (("home", h, aw), ("away", aw, h)):
+            for k in OFF_KEYS + ADJ_KEYS:
+                f[f"{side}_off_{k}"] = off[t].get(k)
+            for k in DEF_KEYS + OWN_DEF_KEYS + ADJ_KEYS:
+                f[f"{side}_def_{k}"] = dfn[t].get(k)
+            if off[t].get("dvoa") is not None and dfn[o_t].get("dvoa") is not None:
+                f[f"{side}_matchup"] = off[t]["dvoa"] + dfn[o_t]["dvoa"]
+            i = inj.get((g["game_id"], t), {})
+            f[f"{side}_out"] = i.get("out", 0)
+            f[f"{side}_qb_out"] = i.get("qb_out", 0)
+            qb = g[f"{side}_qb"]
+            f[f"{side}_qb_change"] = int(bool(qb and last_qb.get(t) and last_qb[t] != qb))
+        for k in ("rest_adv", "home_rest", "away_rest", "home_off_bye", "away_off_bye", "home_short_week",
+                  "away_short_week", "home_long_week", "away_long_week", "away_travel_mi", "home_travel_mi",
+                  "tz_crossed", "altitude_ft", "indoor", "temp_f", "wind_mph", "humidity", "precip_in", "divisional",
+                  "conference_game", "primetime", "monday", "thursday", "saturday", "neutral_site", "international",
+                  "playoff", "home_coach_change", "away_coach_change", "week"):
+            f[k] = g[k]
+        f["travel_east"] = int(g["travel_dir"] == "east")
+        f["grass"] = int("grass" in (g["surface"] or ""))
+        m = mkt.get(g["game_id"], {})
+        f["mkt_spread"], f["mkt_total"], f["mkt_home_prob"] = m.get("spread"), m.get("total"), m.get("prob")
+        final = g["home_score"] is not None and g["away_score"] is not None
+        feats.append({
+            "game_id": g["game_id"], "season": season, "week": week, "kickoff_utc": g["kickoff_utc"],
+            "home_team": h, "away_team": aw, "is_final": int(final),
+            "target_margin": g["margin"] if final else None, "target_total": g["total_points"] if final else None,
+            "target_home_win": (1.0 if g["margin"] > 0 else 0.0 if g["margin"] < 0 else 0.5) if final else None,
+            "feats_json": json.dumps({k: (round(v, 5) if isinstance(v, float) else v) for k, v in f.items()},
+                                     separators=(",", ":")),
+        })
+        if not final:
+            continue
+        margin = g["margin"]
+        mult = math.log(abs(margin) + 1) * 2.2 / (abs(diff) * 0.001 + 2.2)
+        exp_h = elo_prob(diff)
+        res_h = 1.0 if margin > 0 else 0.0 if margin < 0 else 0.5
+        shift = K * mult * (res_h - exp_h)
+        pre_h, pre_a = elo[h], elo[aw]
+        elo[h] += shift
+        elo[aw] -= shift
+        for t, o_t, pf, pa, opp_elo in ((h, aw, g["home_score"], g["away_score"], pre_a),
+                                        (aw, h, g["away_score"], g["home_score"], pre_h)):
+            ss = season_state(t)
+            ss["pf"] += pf
+            ss["pa"] += pa
+            ss["g"] += 1
+            ss["w"] += 1.0 if pf > pa else 0.5 if pf == pa else 0.0
+            ss["opp_elo"].append(opp_elo)
+            results.append((t, o_t, pf - pa))
+            fo, fd = fum.get((g["game_id"], t)), fum.get((g["game_id"], o_t))
+            if fo and fd:
+                ss["luck"] += (fd[1] - 0.5 * fd[0]) - (fo[1] - 0.5 * fo[0])
+                ss["luck_n"] += 1
+            qb = g["home_qb" if t == h else "away_qb"]
+            if qb:
+                last_qb[t] = qb
+        rh, ra = tg.get((g["game_id"], h)), tg.get((g["game_id"], aw))
+        if not rh or not ra or rh.get("epa_play") is None or ra.get("epa_play") is None:
+            continue
+        def adjusted(x_row, opp_state):
+            vals = {}
+            for adj, src in ADJ_SRC.items():
+                x, base = x_row.get(src), lg.get(src)
+                if x is None or base is None:
+                    continue
+                od = opp_state.get(src)
+                vals[adj] = round((x - ((od - base) if od is not None else 0.0) - base) * 100, 2)
+            return vals
+        adj_off = {h: adjusted(rh, dfn[aw]), aw: adjusted(ra, dfn[h])}
+        adj_def = {h: adjusted(ra, off[aw]), aw: adjusted(rh, off[h])}
+        for t in (h, aw):
+            v = adj_off[t]
+            adj_updates.append((v.get("dvoa"), v.get("dvoa_pass"), v.get("dvoa_rush"),
+                                v.get("dvoa_red_zone"), v.get("dvoa_third_down"), g["game_id"], t))
+        for row, t, orow in ((rh, h, ra), (ra, aw, rh)):
+            for k in OFF_KEYS:
+                ewma(off[t], k, row.get(k), a)
+            for k in DEF_KEYS:
+                ewma(dfn[t], k, orow.get(k), a)
+            for k in OWN_DEF_KEYS:
+                ewma(dfn[t], k, row.get(k), a)
+            for k in ADJ_KEYS:
+                ewma(off[t], k, adj_off[t].get(k), a)
+                ewma(dfn[t], k, adj_def[t].get(k), a)
+        for row in (rh, ra):
+            for k in set(OFF_KEYS) | set(ADJ_SRC.values()) | set(OWN_DEF_KEYS):
+                ewma(lg, k, row.get(k), 0.02)
+    con.execute("DELETE FROM ratings")
+    insert_rows(con, "ratings", ratings)
+    con.execute("DELETE FROM features")
+    insert_rows(con, "features", feats)
+    con.executemany("UPDATE team_games SET dvoa=?, dvoa_pass=?, dvoa_rush=?, dvoa_red_zone=?, dvoa_third_down=? "
+                    "WHERE game_id=? AND team=?", adj_updates)
+    nfeat = len(json.loads(feats[-1]["feats_json"])) if feats else 0
+    return len(feats), nfeat
+
+
+def build_player_features(con):
+    rows = con.execute(
+        "SELECT pg.player_id, pg.game_id, pg.team, pg.injury_status, pg.pass_yds, pg.rush_yds, pg.rec_yds, "
+        "pg.attempts, pg.carries, pg.targets, g.kickoff_utc FROM player_games pg JOIN games g ON g.game_id = pg.game_id "
+        "ORDER BY g.kickoff_utc").fetchall()
+    team_games_seen, prod, listed, updates = {}, {}, {}, []
+    flagged = ("Questionable", "Doubtful", "Out", "Injured Reserve")
+    by_game = {}
+    for r in rows:
+        by_game.setdefault(r["game_id"], []).append(r)
+    for gid, rs in by_game.items():
+        for r in rs:
+            hist = prod.get(r["player_id"], [])[-8:]
+            sd = None
+            if len(hist) >= 3:
+                m = sum(hist) / len(hist)
+                sd = round(math.sqrt(sum((x - m) ** 2 for x in hist) / (len(hist) - 1)), 2)
+            tg_hist = team_games_seen.get(r["team"], [])[-8:]
+            risk = None
+            if tg_hist:
+                risk = round(sum(1 for gg in tg_hist if gg in listed.get(r["player_id"], set())) / len(tg_hist), 3)
+            updates.append((sd, risk, r["player_id"], gid))
+        for r in rs:
+            if r["attempts"] or r["carries"] or r["targets"] is not None:
+                prod.setdefault(r["player_id"], []).append((r["pass_yds"] or 0) + (r["rush_yds"] or 0) + (r["rec_yds"] or 0))
+            if r["injury_status"] in flagged:
+                listed.setdefault(r["player_id"], set()).add(gid)
+        for t in {r["team"] for r in rs}:
+            team_games_seen.setdefault(t, []).append(gid)
+    con.executemany("UPDATE player_games SET stat_sd = ?, injury_risk = ? WHERE player_id = ? AND game_id = ?", updates)
+    return len(updates)
+
+
+@stage("features")
+async def features(con, run_id):
+    await need("numpy")
+    s = settings(con)
+    stamp = "|".join(str(x) for x in con.execute(
+        "SELECT (SELECT COUNT(*) FROM plays), (SELECT MAX(detail_at) FROM games WHERE detail_status = 'final')").fetchone())
+    parts = []
+    if get_meta(con, "epa_stamp") != stamp:
+        res = compute_epa(con)
+        if res:
+            set_meta(con, "epa_stamp", stamp)
+            set_meta(con, "ep_r2", round(res["r2"], 4))
+            log(f"  EP model fit on {res['plays']:,} plays · R² {res['r2']:.3f} · EPA for {res['team_games']:,} team-games")
+            parts.append(f"EPA on {res['plays']:,} plays")
+        else:
+            log("  EPA waits for more play-by-play (needs 500+ plays)")
+    else:
+        log("  EPA up to date")
+    con.commit()
+    n, k = build_ratings(con, s)
+    log(f"  ratings and features: {n:,} games · {k} features each")
+    parts.append(f"{n:,} games · {k} features")
+    p = build_player_features(con)
+    log(f"  player volatility and injury risk: {p:,} player-games")
+    return " · ".join(parts)
+
+
+MARKET_FEATURES = {"mkt_spread", "mkt_total", "mkt_home_prob"}
+MEMBERS = {"margin": ("ridge", "gbm"), "total": ("ridge", "gbm"), "win": ("logit", "gbm", "margin_cdf")}
+
+
+def norm_cdf(x):
+    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+
+def load_features(con, start, where="1=1", params=()):
+    rows = con.execute(
+        f"SELECT * FROM features WHERE season >= ? AND {where} ORDER BY kickoff_utc, game_id", (start, *params)).fetchall()
+    return [dict(r, f=json.loads(r["feats_json"])) for r in rows]
+
+
+def to_matrix(np, rows, cols):
+    return np.array([[(lambda v: np.nan if v is None else float(v))(r["f"].get(c)) for c in cols] for r in rows], float)
+
+
+def make_model(kind):
+    from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression, Ridge
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    gbm = dict(max_iter=150, learning_rate=0.05, max_leaf_nodes=15, min_samples_leaf=40, l2_regularization=1.0,
+               random_state=8)
+    if kind == "ridge":
+        return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), StandardScaler(), Ridge(alpha=60.0))
+    if kind == "logit":
+        return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), StandardScaler(),
+                             LogisticRegression(C=0.03, max_iter=3000))
+    if kind == "gbm_reg":
+        return HistGradientBoostingRegressor(**gbm)
+    return HistGradientBoostingClassifier(**gbm)
+
+
+def fit_members(np, X, ym, yt, yw):
+    m = {"gbm_cols": np.where(~np.isnan(X).all(axis=0))[0]}
+    G = X[:, m["gbm_cols"]]
+    m["margin_ridge"] = make_model("ridge").fit(X, ym)
+    m["margin_gbm"] = make_model("gbm_reg").fit(G, ym)
+    m["total_ridge"] = make_model("ridge").fit(X, yt)
+    m["total_gbm"] = make_model("gbm_reg").fit(G, yt)
+    keep = yw != 0.5
+    m["win_logit"] = make_model("logit").fit(X[keep], yw[keep].astype(int))
+    m["win_gbm"] = make_model("gbm_clf").fit(G[keep], yw[keep].astype(int))
+    return m
+
+
+def member_preds(np, m, X):
+    G = X[:, m["gbm_cols"]]
+    return {
+        "margin_ridge": m["margin_ridge"].predict(X), "margin_gbm": m["margin_gbm"].predict(G),
+        "total_ridge": m["total_ridge"].predict(X), "total_gbm": m["total_gbm"].predict(G),
+        "win_logit": m["win_logit"].predict_proba(X)[:, 1], "win_gbm": m["win_gbm"].predict_proba(G)[:, 1],
+    }
+
+
+def logit(np, p):
+    p = np.clip(p, 1e-4, 1 - 1e-4)
+    return np.log(p / (1 - p))
+
+
+def blend_weights_reg(np, a, b, y):
+    best = (None, 1e18)
+    for w in np.linspace(0, 1, 21):
+        err = float(np.mean((w * a + (1 - w) * b - y) ** 2))
+        if err < best[1]:
+            best = (float(w), err)
+    return best[0]
+
+
+def blend_weights_prob(np, P, y):
+    best, grid = (None, 1e18), np.linspace(0, 1, 11)
+    for w1 in grid:
+        for w2 in grid:
+            if w1 + w2 > 1 + 1e-9:
+                continue
+            p = np.clip(w1 * P[0] + w2 * P[1] + (1 - w1 - w2) * P[2], 1e-4, 1 - 1e-4)
+            ll = float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+            if ll < best[1]:
+                best = ((float(w1), float(w2), float(1 - w1 - w2)), ll)
+    return best[0]
+
+
+def platt(np, z, y):
+    from sklearn.linear_model import LogisticRegression
+    lr = LogisticRegression(C=100.0).fit(z.reshape(-1, 1), y.astype(int))
+    return float(lr.coef_[0][0]), float(lr.intercept_[0])
+
+
+def combine(np, bundle, P):
+    w = bundle["weights"]
+    margin = w["margin"] * P["margin_ridge"] + (1 - w["margin"]) * P["margin_gbm"]
+    total = w["total"] * P["total_ridge"] + (1 - w["total"]) * P["total_gbm"]
+    cdf = np.array([norm_cdf(v / bundle["sigma_margin"]) for v in margin])
+    a, b, c = w["win"]
+    raw = a * P["win_logit"] + b * P["win_gbm"] + c * cdf
+    s, i = bundle["platt"]
+    prob = 1 / (1 + np.exp(-(s * logit(np, raw) + i)))
+    return margin, total, prob, cdf
+
+
+def auc_score(np, y, p):
+    pos, neg = p[y == 1], p[y == 0]
+    if not len(pos) or not len(neg):
+        return None
+    order = np.argsort(np.concatenate([pos, neg]))
+    ranks = np.empty(len(order))
+    ranks[order] = np.arange(1, len(order) + 1)
+    return float((ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
+
+
+def walk_forward(np, rows, X, ym, yt, yw, eval_seasons, block):
+    kick = [r["kickoff_utc"] for r in rows]
+    folds = []
+    for season in eval_seasons:
+        weeks = sorted({r["week"] for r in rows if r["season"] == season})
+        for i in range(0, len(weeks), block):
+            wk = set(weeks[i:i + block])
+            test = [j for j, r in enumerate(rows) if r["season"] == season and r["week"] in wk]
+            if not test:
+                continue
+            cut = min(kick[j] for j in test)
+            train = [j for j in range(len(rows)) if kick[j] < cut]
+            if len(train) >= 300:
+                folds.append((season, min(wk), train, test))
+    oof = {k: np.full(len(rows), np.nan) for k in ("margin_ridge", "margin_gbm", "total_ridge", "total_gbm", "win_logit", "win_gbm")}
+    for n, (season, wk, train, test) in enumerate(folds, 1):
+        tr, te = np.array(train), np.array(test)
+        m = fit_members(np, X[tr], ym[tr], yt[tr], yw[tr])
+        for k, v in member_preds(np, m, X[te]).items():
+            oof[k][te] = v
+        log(f"    fold {n}/{len(folds)}: {season} from week {wk} · trained on {len(train):,} games · tested {len(test)}")
+    return oof, folds
+
+
+def metrics_block(np, rows, idx, margin, total, prob, ym, yt, yw):
+    out = {"n": int(len(idx))}
+    out["margin_mae"] = float(np.mean(np.abs(margin[idx] - ym[idx])))
+    out["margin_rmse"] = float(np.sqrt(np.mean((margin[idx] - ym[idx]) ** 2)))
+    out["margin_corr"] = float(np.corrcoef(margin[idx], ym[idx])[0, 1])
+    out["total_mae"] = float(np.mean(np.abs(total[idx] - yt[idx])))
+    mk = [i for i in idx if rows[i]["f"].get("mkt_spread") is not None]
+    if mk:
+        out["mkt_margin_mae"] = float(np.mean([abs(-rows[i]["f"]["mkt_spread"] - ym[i]) for i in mk]))
+    mt = [i for i in idx if rows[i]["f"].get("mkt_total") is not None]
+    if mt:
+        out["mkt_total_mae"] = float(np.mean([abs(rows[i]["f"]["mkt_total"] - yt[i]) for i in mt]))
+    w = np.array([i for i in idx if yw[i] != 0.5])
+    y, p = yw[w], np.clip(prob[w], 1e-4, 1 - 1e-4)
+    out["brier"] = float(np.mean((p - y) ** 2))
+    out["log_loss"] = float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+    out["auc"] = auc_score(np, y, p)
+    out["accuracy"] = float(np.mean((p > 0.5) == (y == 1)))
+    mp = [i for i in w if rows[i]["f"].get("mkt_home_prob") is not None]
+    if mp:
+        out["mkt_brier"] = float(np.mean([(rows[i]["f"]["mkt_home_prob"] - yw[i]) ** 2 for i in mp]))
+    return out
+
+
+def save_bundle(con, bundle):
+    import pickle
+    con.execute("INSERT OR REPLACE INTO models(name, created_at, blob, meta_json) VALUES ('ensemble', ?, ?, ?)",
+                (now(), pickle.dumps(bundle), json.dumps(bundle["meta"])))
+
+
+def load_bundle(con):
+    import pickle
+    r = con.execute("SELECT blob FROM models WHERE name = 'ensemble'").fetchone()
+    return pickle.loads(r[0]) if r else None
+
+
+@stage("train")
+async def train(con, run_id):
+    await need("numpy", "scikit-learn")
+    import numpy as np
+    s = settings(con)
+    start = int(s.get("train_start", 2012))
+    use_mkt = bool(s.get("market_features", 0))
+    rows = load_features(con, start, "is_final = 1")
+    if len(rows) < 400:
+        raise RuntimeError(f"Only {len(rows)} finished games with features. Run Data ingest and Feature engineering first.")
+    stamp = f"{len(rows)}|{rows[-1]['game_id']}|{int(use_mkt)}|{start}|{get_meta(con, 'epa_stamp')}"
+    if get_meta(con, "train_stamp") == stamp and load_bundle(con) is not None:
+        log("  models up to date (no new finished games)")
+        return "Up to date"
+    cols = sorted(set().union(*(r["f"] for r in rows)) - (set() if use_mkt else MARKET_FEATURES))
+    X = to_matrix(np, rows, cols)
+    ym = np.array([r["target_margin"] for r in rows], float)
+    yt = np.array([r["target_total"] for r in rows], float)
+    yw = np.array([r["target_home_win"] for r in rows], float)
+    seasons = sorted({r["season"] for r in rows})
+    eval_seasons = [x for x in seasons if x >= max(int(s.get("backfill_start", 2022)), seasons[-1] - 2)]
+    log(f"  training on {len(rows):,} games {seasons[0]}–{seasons[-1]} · {len(cols)} features · market lines "
+        f"{'included' if use_mkt else 'excluded'}")
+    log(f"  walk-forward test seasons: {', '.join(map(str, eval_seasons))}")
+    oof, folds = walk_forward(np, rows, X, ym, yt, yw, eval_seasons, int(s.get("wf_block_weeks", 3)))
+    idx = np.array([i for i in range(len(rows)) if not np.isnan(oof["margin_ridge"][i])])
+    if len(idx) < 50:
+        raise RuntimeError("Not enough history to run walk-forward tests yet.")
+    weights = {"margin": blend_weights_reg(np, oof["margin_ridge"][idx], oof["margin_gbm"][idx], ym[idx]),
+               "total": blend_weights_reg(np, oof["total_ridge"][idx], oof["total_gbm"][idx], yt[idx])}
+    m_oof = weights["margin"] * oof["margin_ridge"] + (1 - weights["margin"]) * oof["margin_gbm"]
+    sigma = float(np.std(m_oof[idx] - ym[idx]))
+    cdf = np.array([norm_cdf(v / sigma) if not np.isnan(v) else np.nan for v in m_oof])
+    wi = np.array([i for i in idx if yw[i] != 0.5])
+    weights["win"] = blend_weights_prob(np, [oof["win_logit"][wi], oof["win_gbm"][wi], cdf[wi]], yw[wi])
+    a, b, c = weights["win"]
+    raw = a * oof["win_logit"] + b * oof["win_gbm"] + c * cdf
+    pl = platt(np, logit(np, raw[wi]), yw[wi])
+    bundle = {"cols": cols, "weights": weights, "sigma_margin": sigma, "platt": pl}
+    margin, total, prob, _ = combine(np, bundle, oof)
+    met = metrics_block(np, rows, idx, margin, total, prob, ym, yt, yw)
+    sigma_total = float(np.std(total[idx] - yt[idx]))
+    member_met = {k: float(np.mean(np.abs(oof[k][idx] - (ym if k.startswith("margin") else yt)[idx])))
+                  for k in ("margin_ridge", "margin_gbm", "total_ridge", "total_gbm")}
+    log(f"  walk-forward ({met['n']} games): margin MAE {met['margin_mae']:.2f}"
+        + (f" vs market {met['mkt_margin_mae']:.2f}" if "mkt_margin_mae" in met else "")
+        + f" · total MAE {met['total_mae']:.2f}"
+        + (f" vs market {met['mkt_total_mae']:.2f}" if "mkt_total_mae" in met else "")
+        + f" · Brier {met['brier']:.4f}" + (f" vs market {met['mkt_brier']:.4f}" if "mkt_brier" in met else "")
+        + f" · AUC {met['auc']:.3f} · accuracy {met['accuracy']:.1%}")
+    con.execute("DELETE FROM predictions WHERE model = 'walkforward'")
+    ts = now()
+    insert_rows(con, "predictions", [{
+        "run_id": run_id, "game_id": rows[i]["game_id"], "model": "walkforward", "created_at": ts,
+        "pred_margin": round(float(margin[i]), 3), "pred_total": round(float(total[i]), 3),
+        "win_prob": round(float(prob[i]), 5)} for i in idx])
+    insert_rows(con, "model_metrics", [{
+        "run_id": run_id, "model": "ensemble", "target": "all", "season": None, "created_at": ts,
+        "brier": met["brier"], "log_loss": met["log_loss"], "auc": met["auc"], "mae": met["margin_mae"],
+        "correlation": met["margin_corr"], "rmse": met["margin_rmse"], "total_mae": met["total_mae"],
+        "accuracy": met["accuracy"], "mkt_mae": met.get("mkt_margin_mae"), "mkt_total_mae": met.get("mkt_total_mae"),
+        "mkt_brier": met.get("mkt_brier"), "n": met["n"], "folds": len(folds)}])
+    log("  fitting final models on all games")
+    final = fit_members(np, X, ym, yt, yw)
+    bundle.update(models=final, sigma_total=sigma_total, meta={
+        "trained_at": ts, "games": len(rows), "through": rows[-1]["kickoff_utc"], "features": len(cols),
+        "weights": weights, "sigma_margin": round(sigma, 2), "sigma_total": round(sigma_total, 2),
+        "market_features": use_mkt, "eval_seasons": eval_seasons, "members_mae": member_met, "metrics": met})
+    save_bundle(con, bundle)
+    set_meta(con, "train_stamp", stamp)
+    return (f"{len(rows):,} games · walk-forward margin MAE {met['margin_mae']:.2f}"
+            + (f" (market {met['mkt_margin_mae']:.2f})" if "mkt_margin_mae" in met else "")
+            + f" · Brier {met['brier']:.3f}")
+
+
+def contributions(np, bundle, X):
+    pipe = bundle["models"]["margin_ridge"]
+    imp, sc, rg = pipe.steps[0][1], pipe.steps[1][1], pipe.steps[2][1]
+    Z = sc.transform(imp.transform(X)) * rg.coef_
+    w = bundle["weights"]["margin"]
+    out = []
+    for z in Z:
+        top = np.argsort(-np.abs(z))[:6]
+        out.append({bundle["cols"][k]: round(float(z[k] * w), 2) for k in top})
+    return out
+
+
+@stage("predict")
+async def predict(con, run_id):
+    await need("numpy", "scikit-learn")
+    import numpy as np
+    bundle = load_bundle(con)
+    if bundle is None:
+        raise RuntimeError("No trained model yet. Run Model training first.")
+    t = utcnow()
+    rows = load_features(con, 0, "is_final = 0 AND kickoff_utc BETWEEN ? AND ?",
+                         (iso(t - timedelta(hours=4)), iso(t + timedelta(days=14))))
+    if not rows:
+        return "No games in the next 14 days"
+    X = to_matrix(np, rows, bundle["cols"])
+    P = member_preds(np, bundle["models"], X)
+    margin, total, prob, _ = combine(np, bundle, P)
+    spread_m = np.abs(P["margin_ridge"] - P["margin_gbm"]) / 2
+    contrib = contributions(np, bundle, X)
+    ts, changed = now(), 0
+    for i, r in enumerate(rows):
+        var = bundle["sigma_margin"] ** 2 + float(spread_m[i]) ** 2
+        rec = {"run_id": run_id, "game_id": r["game_id"], "model": "ensemble", "created_at": ts,
+               "pred_margin": round(float(margin[i]), 2), "pred_total": round(float(total[i]), 2),
+               "win_prob": round(float(prob[i]), 4), "confidence": round(float(max(prob[i], 1 - prob[i])), 4),
+               "variance": round(var, 2), "shap_json": json.dumps(contrib[i])}
+        last = con.execute("SELECT * FROM predictions WHERE game_id = ? AND model = 'ensemble' ORDER BY id DESC LIMIT 1",
+                           (r["game_id"],)).fetchone()
+        if last and all(last[k] == rec[k] for k in ("pred_margin", "pred_total", "win_prob")):
+            con.execute("UPDATE predictions SET created_at = ?, run_id = ? WHERE id = ?", (ts, run_id, last["id"]))
+            continue
+        insert_rows(con, "predictions", [rec])
+        changed += 1
+    log(f"  predicted {len(rows)} games · {changed} changed since last run")
+    for i, r in enumerate(rows[:6]):
+        fav = r["home_team"] if margin[i] >= 0 else r["away_team"]
+        log(f"    {r['away_team']} @ {r['home_team']}: {fav} by {abs(margin[i]):.1f} · total {total[i]:.1f} · "
+            f"{r['home_team']} {prob[i]:.0%}")
+    return f"{len(rows)} games predicted"
+
+
+DEFAULT_BLEND = {"ml": 0.0, "spread": 0.0, "total": 0.0}
+
+
+def dec_odds(ml):
+    if ml is None or ml == 0:
+        return None
+    return 1 + (ml / 100 if ml > 0 else 100 / -ml)
+
+
+def threshold_probs(mu, sigma, k):
+    if abs(k - round(k)) < 1e-9:
+        lose = norm_cdf((k - 0.5 - mu) / sigma)
+        push = norm_cdf((k + 0.5 - mu) / sigma) - lose
+    else:
+        lose, push = norm_cdf((k - mu) / sigma), 0.0
+    return 1 - lose - push, push, lose
+
+
+def kelly(pw, pl, price, frac, cap):
+    d = dec_odds(price)
+    if d is None:
+        return None
+    b = d - 1
+    ev = pw * b - pl
+    f = (b * pw - pl) / b
+    return {"ev": ev, "kelly": max(0.0, f) * frac, "stake_pct": min(max(0.0, f) * frac, cap), "dec": d}
+
+
+def evaluate_game(g, w, sig_m, sig_t, s):
+    out = []
+    frac, cap, minev = float(s["kelly_fraction"]), float(s["max_bet_pct"]), float(s["min_edge"])
+    if g.get("win_prob") is not None and g.get("ml_home") is not None and g.get("ml_away") is not None:
+        nh, na = novig(implied(g["ml_home"]), implied(g["ml_away"]))
+        if nh is not None:
+            ph = w["ml"] * g["win_prob"] + (1 - w["ml"]) * nh
+            for side, p, price, mk in (("home", ph, g["ml_home"], nh), ("away", 1 - ph, g["ml_away"], na)):
+                k = kelly(p, 1 - p, price, frac, cap)
+                if k:
+                    out.append(dict(k, market="ml", side=side, line=None, price=price, p_win=p, p_push=0.0,
+                                    p_model=g["win_prob"] if side == "home" else 1 - g["win_prob"], p_market=mk))
+    if g.get("pred_margin") is not None and g.get("spread") is not None:
+        L = g["spread"]
+        mu = w["spread"] * g["pred_margin"] + (1 - w["spread"]) * (-L)
+        hw, hp, hl = threshold_probs(mu, sig_m, -L)
+        mw, mp_, ml_ = threshold_probs(-L, sig_m, -L)
+        for side, pw, pp, pl, price, mk, line in (
+                ("home", hw, hp, hl, g.get("juice_home") or -110, mw, L),
+                ("away", hl, hp, hw, g.get("juice_away") or -110, ml_, -L)):
+            k = kelly(pw, pl, price, frac, cap)
+            if k:
+                out.append(dict(k, market="spread", side=side, line=line, price=price, p_win=pw, p_push=pp, p_market=mk,
+                                p_model=threshold_probs(g["pred_margin"], sig_m, -L)[0 if side == "home" else 2]))
+    if g.get("pred_total") is not None and g.get("total") is not None:
+        T = g["total"]
+        mu = w["total"] * g["pred_total"] + (1 - w["total"]) * T
+        ow, op, ol = threshold_probs(mu, sig_t, T)
+        mo, _, mu_ = threshold_probs(T, sig_t, T)
+        for side, pw, pp, pl, price, mk in (("over", ow, op, ol, g.get("juice_over") or -110, mo),
+                                            ("under", ol, op, ow, g.get("juice_under") or -110, mu_)):
+            k = kelly(pw, pl, price, frac, cap)
+            if k:
+                out.append(dict(k, market="total", side=side, line=T, price=price, p_win=pw, p_push=pp, p_market=mk,
+                                p_model=threshold_probs(g["pred_total"], sig_t, T)[0 if side == "over" else 2]))
+    best = {}
+    for b in out:
+        if b["ev"] >= minev and b["stake_pct"] > 0 and (b["market"] not in best or b["ev"] > best[b["market"]]["ev"]):
+            best[b["market"]] = b
+    return list(best.values())
+
+
+def grade(market, side, line, margin, total):
+    if market == "ml":
+        v = margin if side == "home" else -margin
+    elif market == "spread":
+        v = (margin + line) if side == "home" else (-margin + line)
+    else:
+        v = (total - line) if side == "over" else (line - total)
+    return "win" if v > 0 else "loss" if v < 0 else "push"
+
+
+def profit_for(result, stake, price):
+    if result == "win":
+        return stake * (dec_odds(price) - 1)
+    return -stake if result == "loss" else 0.0
+
+
+def fit_blend(np, rows, key):
+    best, grid = (DEFAULT_BLEND[key], 1e18), np.linspace(0, 1, 21)
+    if len(rows) < 150:
+        return DEFAULT_BLEND[key]
+    for w in grid:
+        if key == "ml":
+            p = np.clip(np.array([w * r["model"] + (1 - w) * r["mkt"] for r in rows]), 1e-4, 1 - 1e-4)
+            y = np.array([r["y"] for r in rows])
+            err = float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+        else:
+            err = float(np.mean([(w * r["model"] + (1 - w) * r["mkt"] - r["y"]) ** 2 for r in rows]))
+        if err < best[1]:
+            best = (float(w), err)
+    return best[0]
+
+
+def blend_rows(con, before=None):
+    q = ("SELECT p.pred_margin, p.win_prob, p.pred_total, g.margin, g.total_points, g.kickoff_utc, g.season, "
+         "o.spread_close, o.total_close, o.novig_home FROM predictions p JOIN games g ON g.game_id = p.game_id "
+         "JOIN odds o ON o.game_id = p.game_id AND o.book = 'consensus' WHERE p.model = 'walkforward' AND g.margin IS NOT NULL")
+    rows = [dict(r) for r in con.execute(q)]
+    if before:
+        rows = [r for r in rows if r["kickoff_utc"] < before]
+    return {
+        "ml": [{"model": r["win_prob"], "mkt": r["novig_home"], "y": 1.0 if r["margin"] > 0 else 0.0}
+               for r in rows if r["novig_home"] is not None and r["margin"] != 0],
+        "spread": [{"model": r["pred_margin"], "mkt": -r["spread_close"], "y": r["margin"]} for r in rows if r["spread_close"] is not None],
+        "total": [{"model": r["pred_total"], "mkt": r["total_close"], "y": r["total_points"]} for r in rows if r["total_close"] is not None],
+    }
+
+
+def blend_weights(np, con, before=None):
+    rows = blend_rows(con, before)
+    return {k: fit_blend(np, rows[k], k) for k in ("ml", "spread", "total")}
+
+
+def bet_metrics(bets, start_bank, unit):
+    settled = [b for b in bets if b["result"] in ("win", "loss", "push")]
+    out = {"bets": len(settled), "wins": sum(b["result"] == "win" for b in settled),
+           "losses": sum(b["result"] == "loss" for b in settled), "pushes": sum(b["result"] == "push" for b in settled)}
+    staked = sum(b["stake"] for b in settled)
+    profit = sum(b["profit"] for b in settled)
+    out.update(staked=round(staked, 2), profit=round(profit, 2), bankroll=round(start_bank + profit, 2),
+               roi=profit / start_bank if start_bank else None, yield_=profit / staked if staked else None,
+               win_rate=out["wins"] / (out["wins"] + out["losses"]) if out["wins"] + out["losses"] else None,
+               units=profit / unit if unit else None)
+    bank, peak, dd, weekly = start_bank, start_bank, 0.0, {}
+    for b in sorted(settled, key=lambda b: b["kickoff_utc"]):
+        bank += b["profit"]
+        peak = max(peak, bank)
+        dd = max(dd, (peak - bank) / peak if peak else 0)
+        wk = b["kickoff_utc"][:10]
+        key = (int(wk[:4]) if int(wk[5:7]) > 2 else int(wk[:4]) - 1, b.get("week"))
+        weekly[key] = weekly.get(key, 0.0) + b["profit"]
+    out["drawdown"] = dd
+    rets = list(weekly.values())
+    if len(rets) >= 3:
+        m = sum(rets) / len(rets)
+        sd = math.sqrt(sum((r - m) ** 2 for r in rets) / (len(rets) - 1))
+        out["sharpe"] = (m / sd) * math.sqrt(18) if sd else None
+    else:
+        out["sharpe"] = None
+    clv = [b["clv"] for b in settled if b.get("clv") is not None]
+    out["avg_clv_pts"] = mean([b["clv"] for b in settled if b.get("clv") is not None and b["market"] != "ml"])
+    out["avg_clv_prob"] = mean([b["clv"] for b in settled if b.get("clv") is not None and b["market"] == "ml"])
+    out["clv_positive"] = sum(1 for c in clv if c > 0) / len(clv) if clv else None
+    by = {}
+    for b in settled:
+        d = by.setdefault(b["market"], {"bets": 0, "profit": 0.0, "staked": 0.0, "wins": 0, "losses": 0})
+        d["bets"] += 1
+        d["profit"] += b["profit"]
+        d["staked"] += b["stake"]
+        d["wins"] += b["result"] == "win"
+        d["losses"] += b["result"] == "loss"
+    for d in by.values():
+        d["yield"] = d["profit"] / d["staked"] if d["staked"] else None
+        d["profit"] = round(d["profit"], 2)
+    out["by_market"] = by
+    return out
+
+
+def backtest(np, con, s, sig_m, sig_t):
+    rows = [dict(r) for r in con.execute(
+        "SELECT p.game_id, p.pred_margin, p.pred_total, p.win_prob, g.season, g.week, g.kickoff_utc, g.margin, "
+        "g.total_points, o.spread_close AS spread, o.total_close AS total, o.ml_home_close AS ml_home, "
+        "o.ml_away_close AS ml_away, o.juice_home, o.juice_away, o.juice_over, o.juice_under "
+        "FROM predictions p JOIN games g ON g.game_id = p.game_id JOIN odds o ON o.game_id = p.game_id AND o.book = 'consensus' "
+        "WHERE p.model = 'walkforward' AND g.margin IS NOT NULL ORDER BY g.kickoff_utc")]
+    if not rows:
+        return None
+    start = float(s["bankroll"])
+    bank, bets, weights_by_season = start, [], {}
+    weeks = {}
+    for r in rows:
+        weeks.setdefault((r["season"], r["week"]), []).append(r)
+    for (season, week), games in sorted(weeks.items(), key=lambda kv: kv[1][0]["kickoff_utc"]):
+        if season not in weights_by_season:
+            first = min(g["kickoff_utc"] for g in rows if g["season"] == season)
+            weights_by_season[season] = blend_weights(np, con, before=first)
+        w = weights_by_season[season]
+        week_bank = bank
+        for g in games:
+            for b in evaluate_game(g, w, sig_m, sig_t, s):
+                stake = round(week_bank * b["stake_pct"], 2)
+                res = grade(b["market"], b["side"], b["line"], g["margin"], g["total_points"])
+                pr = profit_for(res, stake, b["price"])
+                bank += pr
+                bets.append({"market": b["market"], "stake": stake, "profit": pr, "result": res,
+                             "kickoff_utc": g["kickoff_utc"], "week": week, "clv": None})
+    m = bet_metrics(bets, start, float(s["unit_size"]))
+    m["weights"] = {str(k): v for k, v in weights_by_season.items()}
+    m["seasons"] = sorted(weights_by_season)
+    return m
+
+
+def latest_market(con, game_id):
+    live = con.execute("SELECT * FROM odds WHERE game_id = ? AND book <> 'consensus' ORDER BY id DESC LIMIT 1", (game_id,)).fetchone()
+    cons = con.execute("SELECT * FROM odds WHERE game_id = ? AND book = 'consensus' LIMIT 1", (game_id,)).fetchone()
+    o = live or cons
+    if not o:
+        return None
+    return {"book": o["book"], "spread": o["spread_current"], "total": o["total_current"], "ml_home": o["ml_home"],
+            "ml_away": o["ml_away"], "juice_home": o["juice_home"], "juice_away": o["juice_away"],
+            "juice_over": o["juice_over"], "juice_under": o["juice_under"]}
+
+
+def closing_for(con, game_id, book):
+    for b in (book, "consensus"):
+        o = con.execute("SELECT * FROM odds WHERE game_id = ? AND book = ? AND spread_close IS NOT NULL ORDER BY id DESC LIMIT 1",
+                        (game_id, b)).fetchone()
+        if o:
+            return o
+    return None
+
+
+def bet_clv(b, close):
+    if close is None:
+        return None, None, None
+    if b["market"] == "spread":
+        cl = close["spread_close"]
+        if cl is None:
+            return None, None, None
+        return (cl if b["side"] == "home" else -cl), None, round((b["line"] - cl) if b["side"] == "home" else (cl + b["line"]), 2)
+    if b["market"] == "total":
+        cl = close["total_close"]
+        if cl is None:
+            return None, None, None
+        return cl, None, round((cl - b["line"]) if b["side"] == "over" else (b["line"] - cl), 2)
+    mh, ma = close["ml_home_close"], close["ml_away_close"]
+    nh, na = novig(implied(mh), implied(ma))
+    if nh is None:
+        return None, None, None
+    p_close = nh if b["side"] == "home" else na
+    return None, mh if b["side"] == "home" else ma, round(p_close - 1 / dec_odds(b["price"]), 4)
+
+
+@stage("bet")
+async def bet(con, run_id):
+    await need("numpy", "scikit-learn")
+    import numpy as np
+    s = settings(con)
+    bundle = load_bundle(con)
+    if bundle is None:
+        raise RuntimeError("No trained model yet. Run Model training first.")
+    sig_m, sig_t = bundle["sigma_margin"], bundle.get("sigma_total", 13.8)
+    w = blend_weights(np, con)
+    set_meta(con, "bet_weights", json.dumps(w))
+    settled = 0
+    for b in con.execute("SELECT b.*, g.margin, g.total_points FROM bets b JOIN games g ON g.game_id = b.game_id "
+                         "WHERE b.result IS NULL AND g.margin IS NOT NULL").fetchall():
+        res = grade(b["market"], b["side"], b["line"], b["margin"], b["total_points"])
+        cline, cprice, clv = bet_clv(b, closing_for(con, b["game_id"], b["book"]))
+        con.execute("UPDATE bets SET result = ?, profit = ?, closing_line = ?, closing_price = ?, clv = ?, status = 'settled' "
+                    "WHERE id = ?", (res, round(profit_for(res, b["stake"], b["price"]), 2), cline, cprice, clv, b["id"]))
+        settled += 1
+    for b in con.execute("SELECT b.* FROM bets b JOIN games g ON g.game_id = b.game_id WHERE b.status = 'open' "
+                         "AND g.kickoff_utc <= ?", (now(),)).fetchall():
+        cline, cprice, clv = bet_clv(b, closing_for(con, b["game_id"], b["book"]))
+        con.execute("UPDATE bets SET status = 'locked', closing_line = ?, closing_price = ?, clv = ? WHERE id = ?",
+                    (cline, cprice, clv, b["id"]))
+    start = float(s["bankroll"])
+    profit = con.execute("SELECT COALESCE(SUM(profit), 0) FROM bets WHERE result IS NOT NULL").fetchone()[0]
+    bank = start + profit
+    open_stake = con.execute("SELECT COALESCE(SUM(stake), 0) FROM bets WHERE result IS NULL").fetchone()[0]
+    max_open = bank * float(s.get("max_exposure", 0.25))
+    games = con.execute(
+        "SELECT g.game_id, g.home_team, g.away_team, g.kickoff_utc, p.pred_margin, p.pred_total, p.win_prob "
+        "FROM games g JOIN (SELECT game_id, MAX(id) id FROM predictions WHERE model = 'ensemble' GROUP BY game_id) lp "
+        "ON lp.game_id = g.game_id JOIN predictions p ON p.id = lp.id WHERE g.home_score IS NULL AND g.kickoff_utc > ? "
+        "ORDER BY g.kickoff_utc", (now(),)).fetchall()
+    placed, considered = 0, 0
+    ts = now()
+    for g in games:
+        mk = latest_market(con, g["game_id"])
+        if not mk:
+            continue
+        considered += 1
+        gd = dict(dict(g), **mk)
+        for b in sorted(evaluate_game(gd, w, sig_m, sig_t, s), key=lambda x: -x["ev"]):
+            if con.execute("SELECT 1 FROM bets WHERE game_id = ? AND market = ?", (g["game_id"], b["market"])).fetchone():
+                continue
+            stake = round(bank * b["stake_pct"], 2)
+            if stake <= 0 or open_stake + stake > max_open:
+                continue
+            open_stake += stake
+            insert_rows(con, "bets", [{
+                "run_id": run_id, "game_id": g["game_id"], "market": b["market"], "side": b["side"], "line": b["line"],
+                "price": b["price"], "book": mk["book"], "model_prob": round(b["p_win"], 4), "p_push": round(b["p_push"], 4),
+                "model_only_prob": round(b["p_model"], 4), "novig_prob": round(b["p_market"], 4),
+                "edge": round(b["p_win"] - b["p_market"], 4), "ev": round(b["ev"], 4),
+                "kelly_fraction": round(b["kelly"], 4), "stake": stake, "units": round(stake / float(s["unit_size"]), 2),
+                "placed_at": ts, "status": "open"}])
+            placed += 1
+            team = {"home": g["home_team"], "away": g["away_team"]}.get(b["side"], b["side"].title())
+            line = f" {b['line']:+g}" if b["market"] == "spread" else f" {b['line']:g}" if b["market"] == "total" else " ML"
+            log(f"    NEW {g['away_team']} @ {g['home_team']}: {team}{line} ({b['price']:+d}) · EV {b['ev']:+.1%} · "
+                f"stake ${stake:,.2f}")
+    bt_stamp = f"{get_meta(con, 'train_stamp')}|{s['kelly_fraction']}|{s['min_edge']}|{s['max_bet_pct']}|{s['bankroll']}"
+    if get_meta(con, "backtest_stamp") != bt_stamp:
+        bt = backtest(np, con, s, sig_m, sig_t)
+        if bt:
+            set_meta(con, "backtest", json.dumps(bt))
+            set_meta(con, "backtest_stamp", bt_stamp)
+            con.execute("DELETE FROM model_metrics WHERE model = 'backtest'")
+            insert_rows(con, "model_metrics", [{
+                "run_id": run_id, "model": "backtest", "target": "bets", "created_at": ts, "n": bt["bets"],
+                "roi": bt["roi"], "yield": bt["yield_"], "win_rate": bt["win_rate"], "units": bt["units"],
+                "bankroll": bt["bankroll"], "drawdown": bt["drawdown"], "sharpe": bt["sharpe"]}])
+            log(f"  backtest {bt['seasons']}: {bt['bets']} bets · yield {bt['yield_'] or 0:+.1%} · ROI {bt['roi'] or 0:+.1%} · "
+                f"max drawdown {bt['drawdown']:.1%}")
+    log(f"  blend weights (model share): ML {w['ml']:.2f} · spread {w['spread']:.2f} · total {w['total']:.2f}")
+    log(f"  {considered} games checked · {placed} new bets · {settled} settled · bankroll ${bank:,.2f}")
+    return f"{placed} new bets · {settled} settled · bankroll ${bank:,.0f}"
+
+
+def bets_summary(con):
+    s = settings(con)
+    rows = [dict(r) for r in con.execute(
+        "SELECT b.*, g.home_team, g.away_team, g.kickoff_utc, g.week, g.home_score, g.away_score FROM bets b "
+        "JOIN games g ON g.game_id = b.game_id ORDER BY g.kickoff_utc DESC, b.id DESC")]
+    keep = ("id", "game_id", "market", "side", "line", "price", "book", "model_prob", "model_only_prob", "novig_prob", "edge",
+            "ev", "stake", "units", "kelly_fraction", "placed_at", "status", "result", "profit", "clv", "closing_line",
+            "home_team", "away_team", "kickoff_utc", "home_score", "away_score")
+    pending = [{k: r[k] for k in keep} for r in rows if r["result"] is None]
+    done = [{k: r[k] for k in keep} for r in rows if r["result"] is not None][:15]
+    bt = get_meta(con, "backtest")
+    bw = get_meta(con, "bet_weights")
+    return {"pending": pending, "settled": done, "live": bet_metrics(rows, float(s["bankroll"]), float(s["unit_size"])),
+            "backtest": json.loads(bt) if bt else None, "weights": json.loads(bw) if bw else None}
+
+
+@stage("check")
+async def check(con, run_id):
+    ok = con.execute("PRAGMA integrity_check").fetchone()[0]
+    if ok != "ok":
+        raise RuntimeError(f"integrity check failed: {ok}")
+    missing = [t for t in DATA_TABLES
+               if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone()]
+    if missing:
+        raise RuntimeError(f"missing tables: {', '.join(missing)}")
+    fields = sum(len(data_columns(con, t)) for t in DATA_TABLES)
+    rows = sum(con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in DATA_TABLES)
+    s = settings(con)
+    log(f"  integrity ok · {len(DATA_TABLES)} tables · {fields} fields · {rows:,} rows")
+    log(f"  bankroll ${s['bankroll']:,.0f} · Kelly {s['kelly_fraction']:.2f} · min edge {s['min_edge']:.1%}")
+    return f"Healthy · {fields} fields · {rows:,} rows"
+
+
+@stage("ingest")
+async def ingest(con, run_id):
+    s = settings(con)
+    ok, notes = 0, []
+    for name, fn in INGEST_STEPS:
+        label = next(l for k, l, _ in SOURCES if k == name)
+        try:
+            msg, rows, h = await fn(con, s)
+            mark_source(con, name, "ok", rows, msg, h)
+            ok += 1
+        except Exception as e:
+            con.rollback()
+            msg = friendly(e)
+            mark_source(con, name, "error", None, msg)
+            log(f"  {label}: {msg}")
+            notes.append(name)
+        con.commit()
+    if ok == 0:
+        raise RuntimeError("No data source could be reached. Check the internet connection.")
+    return f"{ok} of {len(INGEST_STEPS)} sources updated" + (f" · failed: {', '.join(notes)}" if notes else "")
+
+
+async def run(stages=None, trigger="manual"):
+    stages = [s for s in (stages or [k for k, *_ in STAGES]) if s in STAGE_META]
+    con = connect()
+    cur = con.execute("INSERT INTO runs(started_at, trigger, stages, status) VALUES (?, ?, ?, 'running')",
+                      (now(), trigger, ",".join(stages)))
+    run_id = cur.lastrowid
+    con.commit()
+    log(f"Run #{run_id} · {trigger} · {len(stages)} stage{'s' if len(stages) != 1 else ''}")
+    t0 = time.time()
+    results = []
+    for key in stages:
+        name, part = STAGE_META[key]
+        fn = HANDLERS.get(key)
+        s0 = time.time()
+        log(f"▸ {name}")
+        if fn is None:
+            status, msg = "pending", f"Arrives in Part {part}"
+            log(f"  {msg}")
+        else:
+            try:
+                msg = await fn(con, run_id) or "Done"
+                status = "ok"
+                con.commit()
+            except Exception as e:
+                con.rollback()
+                status, msg = "error", friendly(e)
+                log(f"  ERROR {msg}")
+        secs = round(time.time() - s0, 2)
+        con.execute("INSERT OR REPLACE INTO stage_status(stage, status, message, run_id, updated_at, seconds) "
+                    "VALUES (?, ?, ?, ?, ?, ?)", (key, status, msg, run_id, now(), secs))
+        con.commit()
+        results.append(status)
+        if status == "error":
+            break
+    overall = "error" if "error" in results else "partial" if "pending" in results else "ok"
+    secs = round(time.time() - t0, 2)
+    con.execute("UPDATE runs SET finished_at = ?, status = ?, seconds = ? WHERE run_id = ?",
+                (now(), overall, secs, run_id))
+    con.commit()
+    con.close()
+    log(f"Run #{run_id} finished · {overall} · {secs}s")
+    return {"run_id": run_id, "status": overall}
+
+
+def upcoming_games(con, limit=16):
+    out = []
+    rows = con.execute(
+        "SELECT * FROM games WHERE home_score IS NULL AND kickoff_utc >= ? ORDER BY kickoff_utc LIMIT ?",
+        (iso(utcnow() - timedelta(hours=4)), limit)).fetchall()
+    for g in rows:
+        live = con.execute("SELECT * FROM odds WHERE game_id = ? AND book <> 'consensus' ORDER BY id DESC LIMIT 1",
+                           (g["game_id"],)).fetchone()
+        cons = con.execute("SELECT * FROM odds WHERE game_id = ? AND book = 'consensus' LIMIT 1", (g["game_id"],)).fetchone()
+        o = live or cons
+        pr = con.execute("SELECT * FROM predictions WHERE game_id = ? AND model = 'ensemble' ORDER BY id DESC LIMIT 1",
+                         (g["game_id"],)).fetchone()
+        inj = {r["team"]: r["n"] for r in con.execute(
+            "SELECT team, COUNT(*) AS n FROM player_games WHERE game_id = ? AND injury_status IN ('Out', 'Doubtful', 'Injured Reserve') "
+            "GROUP BY team", (g["game_id"],))}
+        out.append({
+            "game_id": g["game_id"], "week": g["week"], "kickoff_utc": g["kickoff_utc"],
+            "home": g["home_team"], "away": g["away_team"], "stadium": g["stadium"],
+            "indoor": g["indoor"], "international": g["international"], "temp_f": g["temp_f"],
+            "wind_mph": g["wind_mph"], "precip_in": g["precip_in"],
+            "book": o["book"] if o else None,
+            "spread": o["spread_current"] if o else None, "spread_open": o["spread_open"] if o else None,
+            "total": o["total_current"] if o else None, "total_open": o["total_open"] if o else None,
+            "ml_home": o["ml_home"] if o else None, "ml_away": o["ml_away"] if o else None,
+            "novig_home": o["novig_home"] if o else None, "steam": o["steam_move"] if o else None,
+            "freeze": o["line_freeze"] if o else None,
+            "out_home": inj.get(g["home_team"], 0), "out_away": inj.get(g["away_team"], 0),
+            "pred_margin": pr["pred_margin"] if pr else None, "pred_total": pr["pred_total"] if pr else None,
+            "win_prob": pr["win_prob"] if pr else None, "drivers": json.loads(pr["shap_json"]) if pr and pr["shap_json"] else None,
+        })
+    return out
+
+
+def current_ratings(con):
+    rows = con.execute(
+        "SELECT r.* FROM ratings r JOIN (SELECT team, MAX(season * 100 + week) k FROM ratings GROUP BY team) m "
+        "ON m.team = r.team AND m.k = r.season * 100 + r.week ORDER BY r.power_rating DESC").fetchall()
+    keep = ("team", "season", "week", "elo", "power_rating", "srs", "pythag_wins", "off_eff", "def_eff", "net_eff",
+            "sos", "turnover_luck", "regression_score")
+    latest = max((r["season"] for r in rows), default=None)
+    return [{k: r[k] for k in keep} for r in rows if r["team"] in CURRENT_TEAMS and r["season"] == latest]
+
+
+def model_summary(con):
+    r = con.execute("SELECT meta_json FROM models WHERE name = 'ensemble'").fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def summary_json():
+    con = connect()
+    tables = [{"name": t,
+               "rows": con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0],
+               "fields": len(data_columns(con, t))} for t in DATA_TABLES]
+    st = {r["stage"]: dict(r) for r in con.execute("SELECT * FROM stage_status")}
+    stages = []
+    for key, name, part, desc in STAGES:
+        s = st.get(key, {})
+        stages.append({"key": key, "name": name, "part": part, "desc": desc, "built": key in HANDLERS,
+                       "status": s.get("status"), "message": s.get("message"),
+                       "updated_at": s.get("updated_at"), "seconds": s.get("seconds")})
+    src = {r["name"]: dict(r) for r in con.execute("SELECT * FROM sources")}
+    sources = [{"key": k, "label": l, "provider": p, **{f: src.get(k, {}).get(f) for f in ("status", "rows", "message", "fetched_at")}}
+               for k, l, p in SOURCES]
+    runs = [dict(r) for r in con.execute("SELECT * FROM runs ORDER BY run_id DESC LIMIT 8")]
+    out = {"version": VERSION, "tables": tables, "stages": stages, "runs": runs, "settings": settings(con),
+           "sources": sources, "upcoming": upcoming_games(con), "ratings": current_ratings(con),
+           "ep_r2": num(get_meta(con, "ep_r2")), "model": model_summary(con), "bets": bets_summary(con)}
+    con.close()
+    return json.dumps(out)
+</script>
+
+<script>
+const IN_APP = /NFL8App/.test(navigator.userAgent) && !!window.NFL8Native;
+const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+const PYODIDE_SOURCES = IN_APP ? [location.origin + '/assets/pyodide/', PYODIDE_CDN] : [PYODIDE_CDN];
+const PT = 'America/Los_Angeles';
+const $ = s => document.querySelector(s);
+const el = { pill: $('#pill'), pillText: $('#pillText'), log: $('#log'), banner: $('#banner') };
+const S = { src: 0, ready: false, busy: false, inline: false, worker: null, handler: null, summary: null, dbSize: 0, lock: null, timer: null };
+
+function engineCore(send) {
+  let py, seq = 0;
+  const pending = {};
+  const post = (t, d = {}) => send({ t, ...d });
+  globalThis.relayFetch = url => new Promise((res, rej) => {
+    const id = ++seq;
+    pending[id] = { res, rej };
+    post('fetch', { id, url });
+  });
+  const dbBytes = () => py.FS.readFile('/engine.db');
+  const summary = () => JSON.parse(py.runPython('nfl8.summary_json()'));
+  return async (m) => {
+    if (m.cmd === 'fetchResult') {
+      const p = pending[m.id];
+      delete pending[m.id];
+      if (p) m.ok ? p.res(m.text) : p.rej(new Error(m.error || 'Failed to fetch'));
+      return;
+    }
+    try {
+      if (m.cmd === 'boot') {
+        post('status', { s: 'booting', msg: 'Loading Python' });
+        py = await loadPyodide({ indexURL: m.indexURL, stdout: l => post('log', { l }), stderr: l => post('log', { l, lvl: 'err' }) });
+        post('status', { s: 'booting', msg: 'Loading database' });
+        await py.loadPackage(['sqlite3'], { messageCallback: l => post('log', { l, lvl: 'dim' }), errorCallback: l => post('log', { l, lvl: 'err' }) });
+        if (m.db) py.FS.writeFile('/engine.db', m.db);
+        py.FS.writeFile('/home/pyodide/nfl8.py', m.code);
+        py.runPython('import sys, json\nif "/home/pyodide" not in sys.path: sys.path.insert(0, "/home/pyodide")\nimport nfl8\nnfl8.init_db()');
+        if (m.relay) py.runPython('from js import relayFetch\nasync def _relay(url):\n    return await relayFetch(url)\nnfl8.FETCH = _relay');
+        post('ready', { summary: summary(), db: dbBytes() });
+      } else if (m.cmd === 'run') {
+        py.globals.set('_req', JSON.stringify(m.req));
+        await py.runPythonAsync('import json\n_r = json.loads(_req)\nawait nfl8.run(_r["stages"], _r["trigger"])');
+        post('done', { summary: summary(), db: dbBytes() });
+      } else if (m.cmd === 'set') {
+        py.globals.set('_req', JSON.stringify(m.req));
+        py.runPython('nfl8.set_settings(json.loads(_req))');
+        post('done', { summary: summary(), db: dbBytes() });
+      } else if (m.cmd === 'reset') {
+        py.runPython('nfl8.reset_db()');
+        post('done', { summary: summary(), db: dbBytes() });
+      }
+    } catch (e) {
+      post('error', { msg: String((e && e.message) || e) });
+    }
+  };
+}
+
+const idb = (() => {
+  let p;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const r = indexedDB.open('nfl-engine-8', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+  const tx = (mode, fn) => open().then(db => new Promise((res, rej) => {
+    const t = db.transaction('kv', mode);
+    const q = fn(t.objectStore('kv'));
+    t.oncomplete = () => res(q.result);
+    t.onerror = () => rej(t.error);
+  }));
+  return { get: k => tx('readonly', s => s.get(k)), set: (k, v) => tx('readwrite', s => s.put(v, k)) };
+})();
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('nfl8.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('nfl8.' + k, JSON.stringify(v)); } catch {} }
+};
+
+const pad = n => String(n).padStart(2, '0');
+const clock = (d = new Date()) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const when = iso => {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', { timeZone: PT, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+const kick = iso => new Date(iso).toLocaleString('en-US', { timeZone: PT, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT';
+const signed = n => n == null ? '—' : n === 0 ? 'PK' : (n > 0 ? '+' : '') + n;
+const price = n => n == null ? '—' : n > 0 ? '+' + n : String(n);
+function spreadText(g) {
+  if (g.spread == null) return 'No line yet';
+  if (g.spread === 0) return 'PK';
+  return g.spread < 0 ? `${g.home} ${g.spread}` : `${g.away} ${-g.spread}`;
+}
+const bytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function log(line, lvl = '') {
+  const atBottom = el.log.scrollHeight - el.log.scrollTop - el.log.clientHeight < 40;
+  const row = document.createElement('div');
+  row.innerHTML = `<span class="ts">${clock()}</span> <span class="${lvl}">${esc(line)}</span>`;
+  el.log.appendChild(row);
+  while (el.log.childNodes.length > 800) el.log.removeChild(el.log.firstChild);
+  if (atBottom) el.log.scrollTop = el.log.scrollHeight;
+}
+
+function setStatus(s, text) {
+  el.pill.dataset.s = s;
+  el.pillText.textContent = text;
+}
+
+function setBusy(b) {
+  S.busy = b;
+  const can = S.ready && !b;
+  ['#runAll', '#runOne', '#exportDb', '#resetDb'].forEach(id => $(id).disabled = !can);
+  $('#stop').disabled = !b;
+  setStatus(b ? 'running' : S.ready ? 'ready' : 'error', b ? 'Running' : S.ready ? 'Ready' : 'Stopped');
+}
+
+function banner(msg) {
+  el.banner.textContent = msg;
+  el.banner.hidden = !msg;
+}
+
+async function saveDb(db) {
+  S.dbSize = db.byteLength;
+  $('#sSize').textContent = bytes(S.dbSize);
+  try {
+    await idb.set('db', db);
+    $('#savedAt').textContent = 'Saved ' + clock();
+  } catch (e) {
+    $('#savedAt').textContent = 'Not saved';
+    banner('This browser blocked on-phone saving, so data lasts only until you close the page. Use Export database to keep a copy.');
+  }
+}
+
+function relay(m) {
+  fetch(m.url, { cache: 'no-store' })
+    .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(text => send({ cmd: 'fetchResult', id: m.id, ok: true, text }),
+          e => send({ cmd: 'fetchResult', id: m.id, ok: false, error: String((e && e.message) || e) }));
+}
+
+function onEngine(m) {
+  if (m.t === 'fetch') relay(m);
+  else if (m.t === 'log') log(m.l, m.lvl || '');
+  else if (m.t === 'status') { setStatus(m.s, m.msg); log(m.msg + '…', 'sys'); }
+  else if (m.t === 'ready' || m.t === 'done') {
+    if (m.t === 'ready') { S.ready = true; log('Engine ready', 'sys'); }
+    render(m.summary);
+    saveDb(m.db);
+    setBusy(false);
+  } else if (m.t === 'error') {
+    log(m.msg, 'err');
+    if (!S.ready && S.src < PYODIDE_SOURCES.length - 1) {
+      S.src++;
+      log('Retrying with the online copy of Python', 'sys');
+      if (S.worker) S.worker.terminate();
+      startEngine();
+    } else if (!S.ready) {
+      setStatus('error', 'Failed');
+      banner('The engine could not start. Check your internet connection (the first load downloads Python), then reload the page.');
+    } else setBusy(false);
+  }
+}
+
+function send(msg) {
+  if (S.inline) S.handler(msg);
+  else S.worker.postMessage(msg);
+}
+
+async function startEngine() {
+  S.ready = false;
+  setBusy(false);
+  setStatus('booting', 'Starting');
+  let db = null;
+  try { db = await idb.get('db'); } catch {}
+  if (db) log(`Found saved database (${bytes(db.byteLength)})`, 'dim');
+  const code = $('#engine-py').textContent;
+  const PYODIDE_URL = PYODIDE_SOURCES[S.src];
+  const boot = { cmd: 'boot', indexURL: PYODIDE_URL, code, db, relay: IN_APP };
+  try {
+    const src = `importScripts('${PYODIDE_URL}pyodide.js');\nconst h = (${engineCore.toString()})(m => postMessage(m));\nonmessage = e => h(e.data);`;
+    S.worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    S.worker.onmessage = e => onEngine(e.data);
+    S.worker.onerror = e => { e.preventDefault(); onEngine({ t: 'error', msg: 'Engine worker error: ' + (e.message || 'unknown') }); };
+    S.inline = false;
+  } catch (e) {
+    log('Background worker unavailable here, running on the page instead', 'dim');
+    await new Promise((res, rej) => {
+      if (window.loadPyodide) return res();
+      const s = document.createElement('script');
+      s.src = PYODIDE_URL + 'pyodide.js';
+      s.onload = res; s.onerror = () => rej(new Error('Could not download Python'));
+      document.head.appendChild(s);
+    }).catch(err => onEngine({ t: 'error', msg: err.message }));
+    S.handler = engineCore(m => setTimeout(() => onEngine(m)));
+    S.inline = true;
+  }
+  send(boot);
+}
+
+function runStages(stages, trigger) {
+  if (!S.ready || S.busy) return false;
+  setBusy(true);
+  log(trigger === 'auto' ? 'Auto-run started' : 'Run started', 'sys');
+  send({ cmd: 'run', req: { stages, trigger } });
+  return true;
+}
+
+function render(sum) {
+  S.summary = sum;
+  $('#sub').textContent = `Engine ${sum.version} · Python + SQLite on this phone`;
+  const pick = $('#stagePick');
+  if (!pick.options.length) pick.innerHTML = sum.stages.map(s => `<option value="${s.key}">${esc(s.name)}</option>`).join('');
+  const built = sum.stages.filter(s => s.built).length;
+  $('#builtCount').textContent = `${built} of ${sum.stages.length} built`;
+  $('#stages').innerHTML = sum.stages.map((s, i) => {
+    const tag = !s.built ? `<span class="tag pending">Part ${s.part}</span>`
+      : s.status === 'ok' ? `<span class="tag ok">OK</span>`
+      : s.status === 'error' ? `<span class="tag error">Error</span>`
+      : `<span class="tag">Ready</span>`;
+    const detail = s.built && s.message ? `${esc(s.message)} · ${when(s.updated_at)}` : esc(s.desc);
+    return `<li><span class="n">${i + 1}</span><div class="t"><strong>${esc(s.name)}</strong><small>${detail}</small></div>${tag}</li>`;
+  }).join('');
+  const rows = sum.tables.reduce((a, t) => a + t.rows, 0);
+  const fields = sum.tables.reduce((a, t) => a + t.fields, 0);
+  $('#sTables').textContent = sum.tables.length;
+  $('#sRows').textContent = rows.toLocaleString();
+  $('#sFields').textContent = fields;
+  $('#sBank').textContent = '$' + Math.round(sum.settings.bankroll).toLocaleString();
+  $('#sKelly').textContent = sum.settings.kelly_fraction.toFixed(2);
+  $('#tables').innerHTML = sum.tables.map(t => `<tr><td>${t.name}</td><td class="num">${t.rows.toLocaleString()}</td><td class="num">${t.fields}</td></tr>`).join('');
+  $('#history').innerHTML = sum.runs.length ? sum.runs.map(r => {
+    const cls = r.status === 'ok' ? 'ok' : r.status === 'error' || r.status === 'interrupted' ? 'error' : 'pending';
+    return `<tr><td class="num">${r.run_id}</td><td>${when(r.started_at)}</td><td>${esc(r.trigger)}</td><td><span class="tag ${cls}">${esc(r.status)}</span></td><td class="num">${r.seconds ?? '—'}</td></tr>`;
+  }).join('') : `<tr><td colspan="5" class="empty">No runs yet. Tap Run full pipeline to start.</td></tr>`;
+  const last = sum.runs[0];
+  $('#lastRun').textContent = last ? `Last: ${when(last.started_at)} · ${last.status}` : 'No runs yet';
+  renderGames(sum.upcoming || []);
+  renderRatings(sum.ratings || [], sum.ep_r2);
+  renderModel(sum.model, sum.settings);
+  renderBets(sum.bets, sum.settings);
+  renderSources(sum.sources || [], sum.settings);
+}
+
+function renderGames(games) {
+  if (!games.length) {
+    $('#games').innerHTML = '<li><div class="ko">No upcoming games loaded yet. Run the pipeline to pull the schedule and live lines.</div></li>';
+    return;
+  }
+  $('#games').innerHTML = games.map(g => {
+    const move = g.spread != null && g.spread_open != null && g.spread !== g.spread_open ? `open ${signed(g.spread_open)}` : (g.book === 'consensus' ? 'consensus' : 'DraftKings');
+    const total = g.total != null ? `O/U ${g.total}` : 'O/U —';
+    const chips = [];
+    if (g.pred_margin != null) {
+      const fav = g.pred_margin >= 0 ? g.home : g.away;
+      chips.push(`<span class="chip hot">Model ${esc(fav)} by ${Math.abs(g.pred_margin).toFixed(1)} · ${esc(g.home)} ${(g.win_prob * 100).toFixed(0)}% · O/U ${g.pred_total.toFixed(1)}</span>`);
+      if (g.spread != null) {
+        const edge = g.pred_margin + g.spread;
+        if (Math.abs(edge) >= 1.5) chips.push(`<span class="chip hot">Model leans ${esc(edge > 0 ? g.home : g.away)} by ${Math.abs(edge).toFixed(1)} pts vs line</span>`);
+      }
+    }
+    if (g.ml_home != null) chips.push(`<span class="chip">ML ${esc(g.away)} ${price(g.ml_away)} · ${esc(g.home)} ${price(g.ml_home)}</span>`);
+    if (g.novig_home != null) chips.push(`<span class="chip">No-vig ${esc(g.home)} ${(g.novig_home * 100).toFixed(1)}%</span>`);
+    if (g.steam) chips.push(`<span class="chip hot">Steam move</span>`);
+    if (g.freeze) chips.push(`<span class="chip">Line frozen 24h+</span>`);
+    chips.push(g.indoor ? `<span class="chip">Indoors</span>` : g.temp_f != null
+      ? `<span class="chip">${Math.round(g.temp_f)}°F · wind ${g.wind_mph ?? '—'} mph${g.precip_in ? ` · ${g.precip_in}" rain` : ''}</span>`
+      : `<span class="chip">Forecast pending</span>`);
+    if (g.international) chips.push(`<span class="chip">${esc(g.stadium || 'International')}</span>`);
+    const outs = (g.out_away || 0) + (g.out_home || 0);
+    if (outs) chips.push(`<span class="chip bad">Out/doubtful: ${esc(g.away)} ${g.out_away} · ${esc(g.home)} ${g.out_home}</span>`);
+    return `<li><div><div class="mu">${esc(g.away)}<span>@</span>${esc(g.home)}</div><div class="ko">Wk ${g.week} · ${kick(g.kickoff_utc)}</div></div>
+      <div class="ln">${esc(spreadText(g))}<small>${esc(total)} · ${esc(move)}</small></div>
+      <div class="meta">${chips.join('')}</div></li>`;
+  }).join('');
+}
+
+function pickText(b) {
+  const team = b.side === 'home' ? b.home_team : b.side === 'away' ? b.away_team : b.side === 'over' ? 'Over' : 'Under';
+  const line = b.market === 'spread' ? ' ' + signed(b.line) : b.market === 'total' ? ' ' + b.line : ' ML';
+  return `${team}${line} (${price(b.price)})`;
+}
+
+function renderBets(B, st) {
+  if (st) {
+    if (document.activeElement !== $('#setBank')) $('#setBank').value = String(Math.round(st.bankroll));
+    $('#setKelly').value = String(st.kelly_fraction);
+    $('#setEdge').value = String(st.min_edge);
+    $('#setMax').value = String(st.max_bet_pct);
+  }
+  if (!B) return;
+  const money = v => v == null ? '—' : (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pc = (v, d = 1) => v == null ? '—' : (v > 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
+  const L = B.live;
+  $('#bBank').textContent = money(L.bankroll);
+  $('#bPL').textContent = money(L.profit);
+  $('#bRec').textContent = `${L.wins}-${L.losses}-${L.pushes}`;
+  $('#bYield').textContent = pc(L.yield_);
+  $('#bDD').textContent = L.bets ? (L.drawdown * 100).toFixed(1) + '%' : '—';
+  $('#bCLV').textContent = L.clv_positive == null ? '—' : (L.clv_positive * 100).toFixed(0) + '%';
+  if (B.weights) $('#betNote').textContent = `Model share: ML ${B.weights.ml.toFixed(2)} · spread ${B.weights.spread.toFixed(2)} · total ${B.weights.total.toFixed(2)}`;
+  $('#openBets').innerHTML = B.pending.length ? B.pending.map(b => `<li><div><div class="pk">${esc(pickText(b))}</div>
+      <div class="gm">${esc(b.away_team)} @ ${esc(b.home_team)} · ${kick(b.kickoff_utc)}${b.status === 'locked' ? ' · in progress' : ''}</div></div>
+      <div class="st">${money(b.stake)}<small>${b.units} u · EV ${pc(b.ev)}</small></div>
+      <div class="why"><span class="chip hot">Win ${(b.model_prob * 100).toFixed(1)}% vs market ${(b.novig_prob * 100).toFixed(1)}%</span>
+      <span class="chip">Model alone ${(b.model_only_prob * 100).toFixed(1)}%</span><span class="chip">${esc(b.book || '')}</span>
+      ${b.clv != null ? `<span class="chip ${b.clv > 0 ? 'hot' : ''}">CLV ${b.market === 'ml' ? pc(b.clv) : signed(b.clv) + ' pts'}</span>` : ''}</div></li>`).join('')
+    : '<li><div class="gm">No open bets. The engine places one only when the blended edge clears your minimum EV.</div></li>';
+  $('#doneBets').innerHTML = B.settled.length ? B.settled.map(b => `<li><div><div class="pk">${esc(pickText(b))}</div>
+      <div class="gm">${esc(b.away_team)} ${b.away_score ?? ''} @ ${esc(b.home_team)} ${b.home_score ?? ''} · ${when(b.kickoff_utc)}</div></div>
+      <div class="st ${b.result}">${b.result.toUpperCase()}<small>${money(b.profit)}${b.clv != null ? ' · CLV ' + (b.market === 'ml' ? pc(b.clv) : signed(b.clv)) : ''}</small></div></li>`).join('')
+    : '<li><div class="gm">Nothing settled yet.</div></li>';
+  const T = B.backtest;
+  if (T) {
+    const names = { ml: 'Moneyline', spread: 'Spread', total: 'Total' };
+    const rows = Object.entries(T.by_market).map(([k, v]) => `<tr><td>${names[k] || k}</td><td class="num">${v.bets}</td><td class="num">${v.wins}-${v.losses}</td><td class="num">${money(v.profit)}</td><td class="num">${pc(v.yield)}</td></tr>`);
+    rows.push(`<tr><td><b>All</b></td><td class="num">${T.bets}</td><td class="num">${T.wins}-${T.losses}</td><td class="num">${money(T.profit)}</td><td class="num">${pc(T.yield_)}</td></tr>`);
+    $('#btTable').innerHTML = T.bets ? rows.join('') : '<tr><td colspan="5" class="empty">No backtest bets cleared the minimum EV.</td></tr>';
+    $('#btNote').textContent = `Seasons ${T.seasons.join(', ')} at closing prices. ROI ${pc(T.roi)} · max drawdown ${(T.drawdown * 100).toFixed(1)}% · Sharpe ${T.sharpe == null ? '—' : T.sharpe.toFixed(2)}. Model weights for each season come only from earlier seasons.`;
+    const w = $('#btWarn');
+    if (T.bets >= 30 && T.yield_ <= 0) {
+      w.hidden = false;
+      w.textContent = `The backtest is losing money (${pc(T.yield_)} yield on ${T.bets} bets). Treat open bets as paper picks until it turns positive.`;
+    } else w.hidden = true;
+  }
+}
+
+function renderModel(m, st) {
+  if (st) $('#setMarket').value = String(Math.round(st.market_features || 0));
+  if (!m) return;
+  const x = m.metrics, f = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d), pc = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  $('#modelNote').textContent = `Trained ${when(m.trained_at)}`;
+  const rows = [
+    ['Margin error (avg pts)', f(x.margin_mae), f(x.mkt_margin_mae)],
+    ['Total error (avg pts)', f(x.total_mae), f(x.mkt_total_mae)],
+    ['Win prob Brier score', f(x.brier, 4), f(x.mkt_brier, 4)],
+    ['Win prob log loss', f(x.log_loss, 4), '—'],
+    ['AUC', f(x.auc, 3), '—'],
+    ['Picked the winner', pc(x.accuracy), '—'],
+  ];
+  $('#modelPerf').innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td></tr>`).join('');
+  $('#modelDetail').textContent = `Tested on ${x.n} games (${m.eval_seasons.join(', ')} seasons), each predicted by models trained only on earlier games. Lower is better for errors and Brier. Trained on ${m.games.toLocaleString()} games with ${m.features} features. Typical miss: ±${m.sigma_margin} pts on margin, ±${m.sigma_total} on total.`;
+}
+
+function renderRatings(rows, r2) {
+  if (!rows.length) return;
+  const f = (v, d = 1) => v == null ? '—' : Number(v).toFixed(d);
+  const sg = (v, d = 1) => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(d);
+  $('#rateNote').textContent = `${rows[0].season} · current` + (r2 != null ? ` · EP fit R² ${Number(r2).toFixed(3)}` : '');
+  $('#ratings').innerHTML = rows.map((r, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(r.team)}</b></td>
+    <td class="num">${sg(r.power_rating)}</td><td class="num">${f(r.elo, 0)}</td>
+    <td class="num">${sg(r.off_eff)}</td><td class="num">${sg(r.def_eff)}</td><td class="num">${sg(r.srs)}</td>
+    <td class="num">${f(r.pythag_wins)}</td><td class="num">${sg(r.sos, 0)}</td><td class="num">${sg(r.turnover_luck)}</td></tr>`).join('');
+}
+
+function renderSources(sources, st) {
+  $('#sources').innerHTML = sources.map(s => {
+    const cls = s.status === 'ok' ? 'ok' : s.status === 'error' ? 'error' : '';
+    const label = s.status === 'ok' ? 'OK' : s.status === 'error' ? 'Error' : 'Not run';
+    return `<tr><td>${esc(s.label)}<small>${esc(s.provider)}${s.message ? ' · ' + esc(s.message) : ''}</small></td>
+      <td><span class="tag ${cls}">${label}</span></td><td class="num">${s.rows != null ? Number(s.rows).toLocaleString() : '—'}</td><td>${when(s.fetched_at)}</td></tr>`;
+  }).join('');
+  const hist = $('#setHistory');
+  if (!hist.options.length) {
+    const y = new Date().getFullYear();
+    for (let s = y; s >= 2012; s--) hist.add(new Option(`${s} season`, s));
+  }
+  if (st) {
+    hist.value = String(Math.round(st.backfill_start));
+    $('#setPerRun').value = String(Math.round(st.max_games_per_run));
+  }
+}
+
+const auto = {
+  get on() { return $('#autoOn').checked; },
+  every() { return Number($('#autoEvery').value) * 60000; },
+  schedule(from = Date.now()) { store.set('autoNext', from + this.every()); },
+  next() { return store.get('autoNext', 0); }
+};
+
+function tick() {
+  const cd = $('#countdown');
+  if (!auto.on) { cd.textContent = 'Auto-run off'; return; }
+  let next = auto.next();
+  if (!next) { auto.schedule(); next = auto.next(); }
+  const left = next - Date.now();
+  if (left <= 0) {
+    if (S.ready && !S.busy) { runStages(null, 'auto'); auto.schedule(); }
+    cd.innerHTML = S.busy ? 'Running now' : 'Waiting for engine';
+    return;
+  }
+  const m = Math.floor(left / 60000), s = Math.floor(left / 1000) % 60;
+  cd.innerHTML = `Next run in <b>${m >= 60 ? Math.floor(m / 60) + 'h ' + pad(m % 60) + 'm' : m + ':' + pad(s)}</b>`;
+}
+
+async function wake() {
+  const want = auto.on && $('#awake').checked && document.visibilityState === 'visible';
+  if (IN_APP) { try { window.NFL8Native.keepScreenOn(!!want); } catch {} return; }
+  if (want && !S.lock && 'wakeLock' in navigator) {
+    try { S.lock = await navigator.wakeLock.request('screen'); S.lock.addEventListener('release', () => { S.lock = null; }); } catch {}
+  } else if (!want && S.lock) { S.lock.release(); S.lock = null; }
+}
+
+$('#runAll').onclick = () => runStages(null, 'manual');
+$('#runOne').onclick = () => runStages([$('#stagePick').value], 'manual');
+$('#stop').onclick = () => {
+  if (!S.busy) return;
+  log('Stopped by you. Restarting engine from the last save', 'sys');
+  if (S.inline) { location.reload(); return; }
+  S.worker.terminate();
+  S.busy = false;
+  startEngine();
+};
+$('#clearLog').onclick = () => { el.log.innerHTML = ''; };
+$('#copyLog').onclick = async () => {
+  const text = el.log.innerText;
+  try { await navigator.clipboard.writeText(text); log('Log copied', 'dim'); }
+  catch { const r = document.createRange(); r.selectNodeContents(el.log); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+};
+$('#exportDb').onclick = async () => {
+  let db; try { db = await idb.get('db'); } catch {}
+  if (!db) { log('Nothing saved to export yet', 'err'); return; }
+  if (IN_APP) {
+    const d = new Date();
+    const name = `nfl-engine-8-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.db`;
+    let bin = '';
+    for (let i = 0; i < db.length; i += 32768) bin += String.fromCharCode.apply(null, db.subarray(i, i + 32768));
+    try { log(`Saved ${window.NFL8Native.saveFile(name, btoa(bin))}`, 'sys'); }
+    catch (e) { log('Could not save the file: ' + e.message, 'err'); }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([db], { type: 'application/x-sqlite3' }));
+  const d = new Date();
+  a.download = `nfl-engine-8-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.db`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  log(`Exported ${a.download}`, 'sys');
+};
+$('#importDb').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const db = new Uint8Array(await f.arrayBuffer());
+  if (new TextDecoder().decode(db.slice(0, 15)) !== 'SQLite format 3') { log(`${f.name} is not a database file`, 'err'); return; }
+  if (S.busy) { log('Wait for the current run to finish, then import again', 'err'); return; }
+  try { await idb.set('db', db); } catch { log('Could not save the imported database', 'err'); return; }
+  log(`Imported ${f.name} (${bytes(db.byteLength)}). Restarting engine`, 'sys');
+  if (S.inline) { location.reload(); return; }
+  S.worker.terminate();
+  startEngine();
+};
+let resetArmed = null;
+$('#resetDb').onclick = () => {
+  const b = $('#resetDb');
+  if (!resetArmed) {
+    b.textContent = 'Tap again to erase everything';
+    resetArmed = setTimeout(() => { resetArmed = null; b.textContent = 'Reset database'; }, 4000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = null; b.textContent = 'Reset database';
+  setBusy(true);
+  send({ cmd: 'reset' });
+};
+
+$('#setBank').onchange = e => {
+  const v = Number(e.target.value);
+  if (!(v > 0)) { log('Enter a bankroll above $0', 'err'); return; }
+  if (!S.ready || S.busy) { log('Wait for the engine to finish, then change the setting again', 'err'); return; }
+  setBusy(true);
+  send({ cmd: 'set', req: { bankroll: v } });
+};
+
+['#setHistory', '#setPerRun', '#setMarket', '#setKelly', '#setEdge', '#setMax'].forEach(id => {
+  $(id).onchange = e => {
+    if (!S.ready || S.busy) { log('Wait for the engine to finish, then change the setting again', 'err'); if (S.summary) render(S.summary); return; }
+    setBusy(true);
+    send({ cmd: 'set', req: { [e.target.dataset.key]: Number(e.target.value) } });
+  };
+});
+
+$('#autoOn').checked = store.get('autoOn', false);
+$('#autoEvery').value = String(store.get('autoEvery', 60));
+$('#awake').checked = store.get('awake', false);
+$('#autoOn').onchange = () => { store.set('autoOn', auto.on); if (auto.on) auto.schedule(); log(auto.on ? 'Auto-run on' : 'Auto-run off', 'sys'); tick(); wake(); };
+$('#autoEvery').onchange = () => { store.set('autoEvery', Number($('#autoEvery').value)); auto.schedule(); tick(); };
+$('#awake').onchange = () => { store.set('awake', $('#awake').checked); wake(); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tick(); wake(); } });
+setInterval(tick, 1000);
+tick();
+wake();
+log(IN_APP ? 'NFL Engine 8 starting. Python is built into the app' : 'NFL Engine 8 starting. The first run downloads Python and its model libraries (about 100 MB, once); later loads come from the browser cache', 'sys');
+startEngine();
+</script>
+</body>
+</html>
