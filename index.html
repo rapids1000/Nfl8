@@ -2811,6 +2811,15 @@ def parlay_stats(weeks):
     return out
 
 
+PICK_MODEL_SHARE = 0.5
+
+
+def pick_weights(np, con, before=None):
+    w = blend_weights(np, con, before)
+    w["ml"] = PICK_MODEL_SHARE
+    return w
+
+
 def picks_backtest(np, con, sig_m, sig_t):
     rows = [dict(r) for r in con.execute(
         "SELECT p.pred_margin, p.pred_total, p.win_prob, g.season, g.week, g.kickoff_utc, g.margin, g.total_points, "
@@ -2823,7 +2832,7 @@ def picks_backtest(np, con, sig_m, sig_t):
     for r in rows:
         if r["season"] not in weights:
             first = min(x["kickoff_utc"] for x in rows if x["season"] == r["season"])
-            weights[r["season"]] = blend_weights(np, con, before=first)
+            weights[r["season"]] = pick_weights(np, con, before=first)
         for m, p in pick_probs(r, weights[r["season"]], sig_m, sig_t).items():
             res = grade_pick(m, p["side"], p["line"], r["margin"], r["total_points"])
             graded.append({"market": m, "prob": p["prob"], "result": res})
@@ -2847,7 +2856,7 @@ async def picks(con, run_id):
     if bundle is None:
         raise RuntimeError("No trained model yet. Run Model training first.")
     sig_m, sig_t = bundle["sigma_margin"], bundle.get("sigma_total", 13.8)
-    w = blend_weights(np, con)
+    w = pick_weights(np, con)
     graded = 0
     for p in con.execute("SELECT k.*, g.margin, g.total_points FROM picks k JOIN games g ON g.game_id = k.game_id "
                          "WHERE k.result IS NULL AND g.margin IS NOT NULL").fetchall():
@@ -2872,7 +2881,7 @@ async def picks(con, run_id):
                 (g["game_id"], m, p["side"], p["line"], round(p["prob"], 4), round(p["model_prob"], 4),
                  None if p["market_prob"] is None else round(p["market_prob"], 4), ts))
             n += 1
-    pk_stamp = f"{get_meta(con, 'train_stamp')}|picks2"
+    pk_stamp = f"{get_meta(con, 'train_stamp')}|picks4"
     if get_meta(con, "picks_backtest_stamp") != pk_stamp:
         bt = picks_backtest(np, con, sig_m, sig_t)
         if bt:
