@@ -169,13 +169,9 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
 .src small { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 150px; min-width: 0; }
 .field span { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.parlays { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
-.parlay { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.parlay .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.parlay .ph b { font: 800 17px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.04em; }
-.parlay .ph span { font: 800 22px/1 var(--font-display); font-variant-numeric: tabular-nums; }
-.parlay .lg { font: 600 13px/1.4 var(--font-body); overflow-wrap: anywhere; }
-.parlay small { color: var(--muted); font-size: 12px; }
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tabs button { min-height: 40px; padding: 0 6px; font: 700 14px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.05em; }
+.tabs button[aria-selected="true"] { background: var(--flag); color: var(--flag-ink); border-color: var(--flag); }
 details.opt > summary { list-style: none; cursor: pointer; min-height: 32px; display: flex; align-items: center; }
 details.opt > summary::-webkit-details-marker { display: none; }
 details.opt > summary h2 { flex: 1; }
@@ -200,19 +196,21 @@ details.opt .body { display: flex; flex-direction: column; gap: 12px; margin-top
   <div class="banner" id="banner" hidden></div>
 
   <section aria-labelledby="h-picks">
-    <h2 id="h-picks">Picks <span id="picksNote">Most likely winners first</span></h2>
+    <h2 id="h-picks">Picks <span id="picksNote">Best first</span></h2>
     <div class="stats three">
       <div class="stat"><b id="pkWin">—</b><span id="pkWinLbl">Winners hit</span></div>
-      <div class="stat"><b id="pkTop">—</b><span>70%+ picks hit</span></div>
-      <div class="stat"><b id="pkPar">—</b><span>3-team parlay hit</span></div>
+      <div class="stat"><b id="pkAts">—</b><span>Spreads hit, 2+ pt edge</span></div>
+      <div class="stat"><b id="pkTot">—</b><span>Totals hit, 2+ pt edge</span></div>
     </div>
-    <p class="subhead" id="parlayHead">Parlays from this week's safest picks</p>
-    <div class="parlays" id="parlays"><div class="empty">Run the pipeline to build parlays.</div></div>
-    <p class="subhead">Every game, most likely winner first</p>
+    <div class="tabs" id="pickTabs" role="tablist" aria-label="Pick type">
+      <button role="tab" data-m="winner" aria-selected="true">Moneyline</button>
+      <button role="tab" data-m="spread" aria-selected="false">Spread</button>
+      <button role="tab" data-m="total" aria-selected="false">Over/Under</button>
+    </div>
     <ul class="pick-list" id="pickList"><li><div class="vs">Run the pipeline to get picks for every upcoming game.</div></li></ul>
+    <p class="note" id="pickTiers"></p>
     <p class="subhead">Recent results</p>
     <ul class="picks" id="pickRecent"><li><div class="gm">Graded picks show up here after games finish.</div></li></ul>
-    <p class="note" id="pickTiers"></p>
   </section>
 
   <section aria-labelledby="h-run">
@@ -538,7 +536,7 @@ CREATE TABLE IF NOT EXISTS bets (
 );
 CREATE INDEX IF NOT EXISTS ix_bets_game ON bets(game_id, market);
 CREATE TABLE IF NOT EXISTS picks (
-  game_id TEXT, market TEXT, side TEXT, line REAL, prob REAL, model_prob REAL, market_prob REAL,
+  game_id TEXT, market TEXT, side TEXT, line REAL, prob REAL, edge REAL, model_prob REAL, market_prob REAL,
   updated_at TEXT, locked INTEGER, result TEXT,
   PRIMARY KEY (game_id, market)
 );
@@ -2730,36 +2728,37 @@ def bets_summary(con):
 
 
 PICK_TIERS = [(0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 1.01)]
+EDGE_TIERS = [(0, 2), (2, 3), (3, 99)]
+PICK_SHARE = {"ml": 0.5, "spread": 1.0, "total": 1.0}
 
 
-def pick_probs(g, w, sig_m, sig_t):
+def pick_probs(g, sig_m, sig_t):
     out = {}
+    w = PICK_SHARE
     ih, ia = implied(g.get("ml_home")), implied(g.get("ml_away"))
     nh = novig(ih, ia)[0] if ih is not None and ia is not None else None
     if g.get("win_prob") is not None:
         p = g["win_prob"] if nh is None else w["ml"] * g["win_prob"] + (1 - w["ml"]) * nh
         home = p >= 0.5
-        out["winner"] = {"side": "home" if home else "away", "line": None, "prob": p if home else 1 - p,
+        out["winner"] = {"side": "home" if home else "away", "line": None, "prob": p if home else 1 - p, "edge": None,
                          "model_prob": g["win_prob"] if home else 1 - g["win_prob"],
                          "market_prob": (nh if home else 1 - nh) if nh is not None else None}
     if g.get("pred_margin") is not None and g.get("spread") is not None:
         L = g["spread"]
         mu = w["spread"] * g["pred_margin"] + (1 - w["spread"]) * (-L)
         hw, _, hl = threshold_probs(mu, sig_m, -L)
-        mw, _, ml_ = threshold_probs(g["pred_margin"], sig_m, -L)
-        ph, mh = hw / (hw + hl), mw / (mw + ml_)
+        ph = hw / (hw + hl)
         home = ph >= 0.5
         out["spread"] = {"side": "home" if home else "away", "line": L if home else -L, "prob": ph if home else 1 - ph,
-                         "model_prob": mh if home else 1 - mh, "market_prob": 0.5}
+                         "edge": abs(mu + L), "model_prob": None, "market_prob": 0.5}
     if g.get("pred_total") is not None and g.get("total") is not None:
         T = g["total"]
         mu = w["total"] * g["pred_total"] + (1 - w["total"]) * T
         ow, _, ol = threshold_probs(mu, sig_t, T)
-        mo, _, mu_ = threshold_probs(g["pred_total"], sig_t, T)
-        po, mp = ow / (ow + ol), mo / (mo + mu_)
+        po = ow / (ow + ol)
         over = po >= 0.5
         out["total"] = {"side": "over" if over else "under", "line": T, "prob": po if over else 1 - po,
-                        "model_prob": mp if over else 1 - mp, "market_prob": 0.5}
+                        "edge": abs(mu - T), "model_prob": None, "market_prob": 0.5}
     return out
 
 
@@ -2776,87 +2775,44 @@ def tier_stats(rows):
     for m in ("winner", "spread", "total"):
         rs = [r for r in rows if r["market"] == m and r["result"] in ("hit", "miss")]
         hits = sum(r["result"] == "hit" for r in rs)
+        key, bands = ("prob", PICK_TIERS) if m == "winner" else ("edge", EDGE_TIERS)
         tiers = []
-        for lo, hi in PICK_TIERS:
-            t = [r for r in rs if lo <= r["prob"] < hi]
-            if t:
-                tiers.append({"lo": lo, "hi": min(hi, 1.0), "n": len(t), "hits": sum(r["result"] == "hit" for r in t),
-                              "rate": sum(r["result"] == "hit" for r in t) / len(t)})
+        for lo, hi in bands:
+            t = [r for r in rs if r.get(key) is not None and lo <= r[key] < hi]
+            h = sum(r["result"] == "hit" for r in t)
+            tiers.append({"lo": lo, "hi": hi, "n": len(t), "hits": h, "rate": h / len(t) if t else None})
         out[m] = {"n": len(rs), "hits": hits, "rate": hits / len(rs) if rs else None, "tiers": tiers}
     return out
 
 
-PARLAY_SIZES = (2, 3, 4)
-
-
-def parlay_stats(weeks):
-    out = {}
-    for k in PARLAY_SIZES:
-        n = hits = exp = 0
-        for legs in weeks.values():
-            top = sorted(legs, key=lambda x: -x[0])[:k]
-            if len(top) < k or any(r == "push" for _, r in top):
-                continue
-            n += 1
-            hits += all(r == "hit" for _, r in top)
-            exp += math.prod(p for p, _ in top)
-        out[str(k)] = {"n": n, "hits": hits, "rate": hits / n if n else None, "expected": exp / n if n else None}
-    n = hits = 0
-    for legs in weeks.values():
-        top = [x for x in legs if x[0] >= 0.7]
-        if len(top) >= 2 and not any(r == "push" for _, r in top):
-            n += 1
-            hits += all(r == "hit" for _, r in top)
-    out["all70"] = {"n": n, "hits": hits, "rate": hits / n if n else None}
-    return out
-
-
-PICK_MODEL_SHARE = 0.5
-
-
-def pick_weights(np, con, before=None):
-    w = blend_weights(np, con, before)
-    w["ml"] = PICK_MODEL_SHARE
-    return w
-
-
-def picks_backtest(np, con, sig_m, sig_t):
+def picks_backtest(con, sig_m, sig_t):
     rows = [dict(r) for r in con.execute(
-        "SELECT p.pred_margin, p.pred_total, p.win_prob, g.season, g.week, g.kickoff_utc, g.margin, g.total_points, "
+        "SELECT p.pred_margin, p.pred_total, p.win_prob, g.season, g.margin, g.total_points, "
         "o.spread_close AS spread, o.total_close AS total, o.ml_home_close AS ml_home, o.ml_away_close AS ml_away "
         "FROM predictions p JOIN games g ON g.game_id = p.game_id LEFT JOIN odds o ON o.game_id = p.game_id AND o.book = 'consensus' "
         "WHERE p.model = 'walkforward' AND g.margin IS NOT NULL ORDER BY g.kickoff_utc")]
     if not rows:
         return None
-    weights, graded, weeks, fav = {}, [], {}, []
+    graded, fav = [], []
     for r in rows:
-        if r["season"] not in weights:
-            first = min(x["kickoff_utc"] for x in rows if x["season"] == r["season"])
-            weights[r["season"]] = pick_weights(np, con, before=first)
-        for m, p in pick_probs(r, weights[r["season"]], sig_m, sig_t).items():
-            res = grade_pick(m, p["side"], p["line"], r["margin"], r["total_points"])
-            graded.append({"market": m, "prob": p["prob"], "result": res})
-            if m == "winner":
-                weeks.setdefault((r["season"], r["week"]), []).append((p["prob"], res))
+        for m, p in pick_probs(r, sig_m, sig_t).items():
+            graded.append({"market": m, "prob": p["prob"], "edge": p["edge"],
+                           "result": grade_pick(m, p["side"], p["line"], r["margin"], r["total_points"])})
         nh = novig(implied(r["ml_home"]), implied(r["ml_away"]))[0]
         if nh is not None and nh != 0.5 and r["margin"] != 0:
             fav.append((nh > 0.5) == (r["margin"] > 0))
     out = tier_stats(graded)
-    out["parlays"] = parlay_stats(weeks)
     out["favorite_rate"] = sum(fav) / len(fav) if fav else None
-    out["seasons"] = sorted(weights)
+    out["seasons"] = sorted({r["season"] for r in rows})
     return out
 
 
 @stage("picks")
 async def picks(con, run_id):
-    await need("numpy", "scikit-learn")
-    import numpy as np
     bundle = load_bundle(con)
     if bundle is None:
         raise RuntimeError("No trained model yet. Run Model training first.")
     sig_m, sig_t = bundle["sigma_margin"], bundle.get("sigma_total", 13.8)
-    w = pick_weights(np, con)
     graded = 0
     for p in con.execute("SELECT k.*, g.margin, g.total_points FROM picks k JOIN games g ON g.game_id = k.game_id "
                          "WHERE k.result IS NULL AND g.margin IS NOT NULL").fetchall():
@@ -2869,36 +2825,30 @@ async def picks(con, run_id):
         "SELECT g.game_id, g.home_team, g.away_team, p.pred_margin, p.pred_total, p.win_prob FROM games g "
         "JOIN (SELECT game_id, MAX(id) id FROM predictions WHERE model = 'ensemble' GROUP BY game_id) lp ON lp.game_id = g.game_id "
         "JOIN predictions p ON p.id = lp.id WHERE g.home_score IS NULL AND g.kickoff_utc > ?", (now(),)).fetchall()
-    ts, n = now(), 0
+    ts = now()
     for g in games:
         gd = dict(g, **(latest_market(con, g["game_id"]) or {}))
-        for m, p in pick_probs(gd, w, sig_m, sig_t).items():
+        for m, p in pick_probs(gd, sig_m, sig_t).items():
             con.execute(
-                "INSERT INTO picks(game_id, market, side, line, prob, model_prob, market_prob, updated_at, locked) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(game_id, market) DO UPDATE SET side = excluded.side, "
-                "line = excluded.line, prob = excluded.prob, model_prob = excluded.model_prob, market_prob = excluded.market_prob, "
-                "updated_at = excluded.updated_at WHERE picks.locked = 0",
-                (g["game_id"], m, p["side"], p["line"], round(p["prob"], 4), round(p["model_prob"], 4),
+                "INSERT INTO picks(game_id, market, side, line, prob, edge, model_prob, market_prob, updated_at, locked) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(game_id, market) DO UPDATE SET side = excluded.side, "
+                "line = excluded.line, prob = excluded.prob, edge = excluded.edge, model_prob = excluded.model_prob, "
+                "market_prob = excluded.market_prob, updated_at = excluded.updated_at WHERE picks.locked = 0",
+                (g["game_id"], m, p["side"], p["line"], round(p["prob"], 4), None if p["edge"] is None else round(p["edge"], 2),
+                 None if p["model_prob"] is None else round(p["model_prob"], 4),
                  None if p["market_prob"] is None else round(p["market_prob"], 4), ts))
-            n += 1
-    pk_stamp = f"{get_meta(con, 'train_stamp')}|picks4"
+    pk_stamp = f"{get_meta(con, 'train_stamp')}|picks5"
     if get_meta(con, "picks_backtest_stamp") != pk_stamp:
-        bt = picks_backtest(np, con, sig_m, sig_t)
+        bt = picks_backtest(con, sig_m, sig_t)
         if bt:
             set_meta(con, "picks_backtest", json.dumps(bt))
             set_meta(con, "picks_backtest_stamp", pk_stamp)
-            log(f"  pick backtest {bt['seasons']}: winners {bt['winner']['rate'] or 0:.1%} of {bt['winner']['n']} "
-                f"(betting favorite {bt['favorite_rate'] or 0:.1%}) · spread {bt['spread']['rate'] or 0:.1%} · "
-                f"total {bt['total']['rate'] or 0:.1%}")
-            for k, v in bt["parlays"].items():
-                if v["n"]:
-                    label = "all 70%+ picks" if k == "all70" else f"top {k} picks"
-                    log(f"    weekly parlay of {label}: hit {v['rate']:.1%} of {v['n']} weeks")
-    top = con.execute("SELECT k.*, g.home_team, g.away_team FROM picks k JOIN games g ON g.game_id = k.game_id "
-                      "WHERE k.market = 'winner' AND k.locked = 0 ORDER BY k.prob DESC LIMIT 5").fetchall()
-    for t in top:
-        team = t["home_team"] if t["side"] == "home" else t["away_team"]
-        log(f"    {team} to win {t['away_team']} @ {t['home_team']} · {t['prob']:.0%}")
+            log(f"  pick test {bt['seasons']}: winners {bt['winner']['rate'] or 0:.1%} of {bt['winner']['n']} "
+                f"(betting favorite {bt['favorite_rate'] or 0:.1%})")
+            for m in ("spread", "total"):
+                log(f"    {m}: all {bt[m]['rate'] or 0:.1%} · " + " · ".join(
+                    f"{t['lo']}+ pts {t['rate']:.1%} ({t['n']})" if t["hi"] > 50 else f"{t['lo']}–{t['hi']} pts {t['rate']:.1%} ({t['n']})"
+                    for t in bt[m]["tiers"] if t["n"]))
     log(f"  {len(games)} games picked · {graded} picks graded")
     return f"{len(games)} games picked · {graded} graded"
 
@@ -2919,36 +2869,6 @@ def game_notes(con, game_id, home, away):
     return notes
 
 
-def american(dec):
-    if not dec or dec <= 1:
-        return None
-    return round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1))
-
-
-def build_parlays(con, upcoming):
-    open_ = [g for g in upcoming if g.get("winner") and not g["locked"]]
-    if not open_:
-        return []
-    wk = min((g["season"], g["week"]) for g in open_)
-    legs = []
-    for g in sorted([g for g in open_ if (g["season"], g["week"]) == wk], key=lambda g: -g["winner"]["prob"]):
-        w = g["winner"]
-        mk = latest_market(con, g["game_id"]) or {}
-        price = mk.get("ml_home") if w["side"] == "home" else mk.get("ml_away")
-        legs.append({"team": g["home"] if w["side"] == "home" else g["away"],
-                     "opp": g["away"] if w["side"] == "home" else g["home"], "home": w["side"] == "home",
-                     "prob": w["prob"], "price": price, "kickoff_utc": g["kickoff_utc"]})
-    out = []
-    for k in PARLAY_SIZES:
-        if len(legs) < k:
-            break
-        top = legs[:k]
-        decs = [dec_odds(x["price"]) for x in top]
-        out.append({"k": k, "week": wk[1], "legs": top, "prob": math.prod(x["prob"] for x in top),
-                    "pays": american(math.prod(decs)) if all(decs) else None})
-    return out
-
-
 def picks_summary(con):
     rows = [dict(r) for r in con.execute(
         "SELECT k.*, g.home_team, g.away_team, g.kickoff_utc, g.week, g.season, g.home_score, g.away_score "
@@ -2957,22 +2877,20 @@ def picks_summary(con):
     for r in rows:
         if r["result"] is None:
             d = games.setdefault(r["game_id"], {"game_id": r["game_id"], "home": r["home_team"], "away": r["away_team"],
-                                                "kickoff_utc": r["kickoff_utc"], "week": r["week"], "season": r["season"],
-                                                "locked": r["locked"]})
-            d[r["market"]] = {k: r[k] for k in ("side", "line", "prob", "model_prob", "market_prob")}
-    upcoming = sorted(games.values(), key=lambda d: -(d.get("winner") or {}).get("prob", 0))
+                                                "kickoff_utc": r["kickoff_utc"], "week": r["week"], "locked": r["locked"]})
+            d[r["market"]] = {k: r[k] for k in ("side", "line", "prob", "edge", "model_prob", "market_prob")}
+    upcoming = sorted(games.values(), key=lambda d: d["kickoff_utc"])
     for g in upcoming:
         g["notes"] = game_notes(con, g["game_id"], g["home"], g["away"])
     done = [r for r in rows if r["result"] is not None]
     season = max((r["season"] for r in done), default=None)
-    recent = sorted([r for r in done if r["market"] == "winner"], key=lambda r: r["kickoff_utc"], reverse=True)[:12]
+    recent = sorted(done, key=lambda r: (r["kickoff_utc"], r["market"]), reverse=True)[:15]
     bt = get_meta(con, "picks_backtest")
     return {"upcoming": upcoming, "record": tier_stats(done),
             "season_record": tier_stats([r for r in done if r["season"] == season]) if season else None,
-            "season": season, "recent": [{k: r[k] for k in ("home_team", "away_team", "side", "prob", "result", "home_score",
-                                                           "away_score", "kickoff_utc")} for r in recent],
-            "backtest": json.loads(bt) if bt else None, "parlays": build_parlays(con, upcoming)}
-
+            "season": season, "recent": [{k: r[k] for k in ("market", "home_team", "away_team", "side", "line", "prob", "edge",
+                                                           "result", "home_score", "away_score", "kickoff_utc")} for r in recent],
+            "backtest": json.loads(bt) if bt else None}
 
 @stage("check")
 async def check(con, run_id):
@@ -3416,11 +3334,38 @@ function tier(p) {
   return p >= 0.8 ? ['Strong', 't-strong'] : p >= 0.7 ? ['Solid', 't-solid'] : p >= 0.6 ? ['Lean', 't-lean'] : ['Coin flip', 't-flip'];
 }
 
+const MKT = { winner: 'Moneyline', spread: 'Spread', total: 'Over/Under' };
+S.pickTab = store.get('pickTab', 'winner');
+
+function edgeTier(t) {
+  if (!t || t.n < 30) return ['Untested', 't-flip'];
+  return t.rate >= 0.55 ? ['Strong', 't-strong'] : t.rate >= 0.524 ? ['Lean', 't-solid'] : ['No edge', 't-flip'];
+}
+
+function testedRate(bt, m, v) {
+  if (!bt || !bt[m] || v == null) return null;
+  return bt[m].tiers.find(t => v >= t.lo && v < t.hi) || null;
+}
+
+function edgeRate(bt, m) {
+  if (!bt || !bt[m]) return null;
+  const t = bt[m].tiers.filter(x => x.lo >= 2);
+  const n = t.reduce((a, x) => a + x.n, 0), h = t.reduce((a, x) => a + x.hits, 0);
+  return n ? { rate: h / n, n } : null;
+}
+
+function pickLabel(m, g, p) {
+  if (m === 'winner') return p.side === 'home' ? g.home : g.away;
+  if (m === 'spread') return `${p.side === 'home' ? g.home : g.away} ${signed(p.line)}`;
+  return `${p.side === 'over' ? 'Over' : 'Under'} ${p.line}`;
+}
+
 function renderPicks(P) {
   if (!P) return;
   const pc = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const bt = P.backtest, m = S.pickTab;
+  document.querySelectorAll('#pickTabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.m === m)));
   const rec = P.season_record && P.season_record.winner.n ? P.season_record : null;
-  const bt = P.backtest;
   if (rec) {
     const w = rec.winner;
     $('#pkWin').textContent = `${w.hits}-${w.n - w.hits}`;
@@ -3429,48 +3374,34 @@ function renderPicks(P) {
     $('#pkWin').textContent = pc(bt.winner.rate);
     $('#pkWinLbl').textContent = 'Winners hit (tested)';
   }
-  const par = bt && bt.parlays ? bt.parlays : {};
+  const ea = edgeRate(bt, 'spread'), et = edgeRate(bt, 'total');
+  $('#pkAts').textContent = ea ? pc(ea.rate) : '—';
+  $('#pkTot').textContent = et ? pc(et.rate) : '—';
   if (bt) {
-    const top = bt.winner.tiers.filter(t => t.lo >= 0.7);
-    const n = top.reduce((a, t) => a + t.n, 0), hits = top.reduce((a, t) => a + t.hits, 0);
-    $('#pkTop').textContent = n ? pc(hits / n) : '—';
-    $('#pkPar').textContent = par['3'] && par['3'].n ? pc(par['3'].rate) : '—';
-    const fav = bt.favorite_rate != null ? ` (just taking the betting favorite: ${pc(bt.favorite_rate)})` : '';
-    $('#pickTiers').textContent = `Tested on ${bt.winner.n} past games: winners hit ${pc(bt.winner.rate)}${fav}. ` + bt.winner.tiers.map(t => `${Math.round(t.lo * 100)}%${t.hi >= 1 ? '+' : '–' + Math.round(t.hi * 100) + '%'} picks hit ${pc(t.rate)} (${t.n})`).join(' · ') + `. Spread sides hit ${pc(bt.spread.rate)} and total sides ${pc(bt.total.rate)}, so keep those out of parlays.`;
+    const fav = bt.favorite_rate != null ? ` Just taking the betting favorite hit ${pc(bt.favorite_rate)}.` : '';
+    const band = t => t.hi > 50 ? `${t.lo}+ pts` : `${t.lo}–${t.hi} pts`;
+    const lines = ['spread', 'total'].map(k => `${MKT[k]}s by model edge: ` + bt[k].tiers.filter(t => t.n).map(t => `${band(t)} hit ${pc(t.rate)} (${t.n})`).join(' · '));
+    $('#pickTiers').textContent = `Tested on ${bt.winner.n} games from ${bt.seasons.join(', ')} the model never saw. Winners hit ${pc(bt.winner.rate)}.${fav} ` +
+      `${lines.join('. ')}. You need about 52.4% to profit at -110. Edge is how many points the model disagrees with the line. Labels come from these tested hit rates: Strong is 55%+, Lean is 52.4%+, No edge is below that.`;
   }
-  const PL = P.parlays || [];
-  $('#parlayHead').textContent = PL.length ? `Parlays from week ${PL[0].week}'s safest picks` : "Parlays from this week's safest picks";
-  $('#parlays').innerHTML = PL.length ? PL.map(p => {
-    const t = par[String(p.k)];
-    const tested = t && t.n ? `Top-${p.k} parlays hit ${pc(t.rate)} of ${t.n} past weeks (expected ${pc(t.expected)})` : 'Not tested yet';
-    return `<div class="parlay"><div class="ph"><b>${p.k}-team</b><span>${(p.prob * 100).toFixed(0)}%</span></div>
-      <div class="lg">${p.legs.map(l => `${esc(l.team)} ${(l.prob * 100).toFixed(0)}%`).join(' · ')}</div>
-      <small>${p.pays != null ? 'Pays about ' + price(p.pays) + ' · ' : ''}${esc(tested)}</small></div>`;
-  }).join('') : '<div class="empty">No open games with picks yet. Run the pipeline.</div>';
-  $('#pickList').innerHTML = P.upcoming.length ? P.upcoming.map(g => {
-    const w = g.winner;
-    if (!w) return '';
-    const team = w.side === 'home' ? g.home : g.away, opp = w.side === 'home' ? g.away : g.home;
-    const [label, cls] = tier(w.prob);
+  const items = P.upcoming.filter(g => g[m]).sort((a, b) => m === 'winner' ? b[m].prob - a[m].prob : b[m].edge - a[m].edge);
+  $('#pickList').innerHTML = items.length ? items.map(g => {
+    const p = g[m];
+    const t = testedRate(bt, m, m === 'winner' ? p.prob : p.edge);
+    const [label, cls] = m === 'winner' ? tier(p.prob) : edgeTier(t);
     const chips = [];
-    if (g.spread) {
-      const t = g.spread.side === 'home' ? g.home : g.away;
-      chips.push(g.spread.prob < 0.52 ? `<span class="chip">Spread: toss-up (${esc(t)} ${signed(g.spread.line)})</span>`
-        : `<span class="chip hot">Spread: ${esc(t)} ${signed(g.spread.line)} · ${(g.spread.prob * 100).toFixed(0)}%</span>`);
-    }
-    if (g.total) {
-      const t = g.total.side === 'over' ? 'Over' : 'Under';
-      chips.push(g.total.prob < 0.52 ? `<span class="chip">Total ${g.total.line}: toss-up</span>`
-        : `<span class="chip hot">${t} ${g.total.line} · ${(g.total.prob * 100).toFixed(0)}%</span>`);
-    }
-    if (w.market_prob != null) chips.push(`<span class="chip">Odds imply ${(w.market_prob * 100).toFixed(0)}%</span>`);
+    if (t && t.n) chips.push(`<span class="chip">Tested at this level: ${pc(t.rate)} of ${t.n}</span>`);
+    if (m === 'winner' && p.market_prob != null) chips.push(`<span class="chip">Odds imply ${(p.market_prob * 100).toFixed(0)}%</span>`);
+    if (m !== 'winner') chips.push(`<span class="chip">Cover chance ${(p.prob * 100).toFixed(0)}%</span>`);
     chips.push(noteChips(g.notes));
-    return `<li><div><div class="who ${cls}">${esc(team)}</div><div class="vs">${w.side === 'home' ? 'vs' : '@'} ${esc(opp)} · ${kick(g.kickoff_utc)}${g.locked ? ' · locked' : ''}</div></div>
-      <div class="pct ${cls}">${(w.prob * 100).toFixed(0)}%<small>${label}</small></div><div class="more">${chips.join('')}</div></li>`;
+    const big = m === 'winner' ? `${(p.prob * 100).toFixed(0)}%` : `${p.edge.toFixed(1)}`;
+    const small = m === 'winner' ? label : `pts edge · ${label}`;
+    return `<li><div><div class="who ${cls}">${esc(pickLabel(m, g, p))}</div><div class="vs">${esc(g.away)} @ ${esc(g.home)} · ${kick(g.kickoff_utc)}${g.locked ? ' · locked' : ''}</div></div>
+      <div class="pct ${cls}">${big}<small>${small}</small></div><div class="more">${chips.join('')}</div></li>`;
   }).join('') : '<li><div class="vs">No upcoming games with predictions yet. Run the pipeline.</div></li>';
   $('#pickRecent').innerHTML = P.recent.length ? P.recent.map(r => {
-    const team = r.side === 'home' ? r.home_team : r.away_team;
-    return `<li><div><div class="pk">${esc(team)} to win · ${(r.prob * 100).toFixed(0)}%</div>
+    const g = { home: r.home_team, away: r.away_team };
+    return `<li><div><div class="pk">${esc(MKT[r.market])}: ${esc(pickLabel(r.market, g, r))}</div>
       <div class="gm">${esc(r.away_team)} ${r.away_score ?? ''} @ ${esc(r.home_team)} ${r.home_score ?? ''} · ${when(r.kickoff_utc)}</div></div>
       <div class="st ${r.result === 'hit' ? 'win' : r.result === 'miss' ? 'loss' : ''}">${r.result.toUpperCase()}</div></li>`;
   }).join('') : '<li><div class="gm">Graded picks show up here after games finish.</div></li>';
@@ -3610,6 +3541,11 @@ async function wake() {
   } else if (!want && S.lock) { S.lock.release(); S.lock = null; }
 }
 
+document.querySelectorAll('#pickTabs button').forEach(b => b.onclick = () => {
+  S.pickTab = b.dataset.m;
+  store.set('pickTab', S.pickTab);
+  if (S.summary) renderPicks(S.summary.picks);
+});
 $('#runAll').onclick = () => runStages(null, 'manual');
 $('#runOne').onclick = () => runStages([$('#stagePick').value], 'manual');
 $('#stop').onclick = () => {
